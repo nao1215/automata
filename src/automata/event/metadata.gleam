@@ -31,6 +31,8 @@ pub fn empty() -> Metadata {
   )
 }
 
+/// Tag this metadata with the correlation id that groups events
+/// belonging to the same business transaction.
 pub fn with_correlation_id(
   metadata metadata: Metadata,
   id id: String,
@@ -38,14 +40,17 @@ pub fn with_correlation_id(
   Metadata(..metadata, correlation_id: Some(id))
 }
 
+/// Set the causation id pointing at the immediate parent event.
 pub fn with_causation_id(metadata metadata: Metadata, id id: String) -> Metadata {
   Metadata(..metadata, causation_id: Some(id))
 }
 
+/// Set the W3C/OpenTelemetry-style trace id.
 pub fn with_trace_id(metadata metadata: Metadata, id id: String) -> Metadata {
   Metadata(..metadata, trace_id: Some(id))
 }
 
+/// Insert (or overwrite) a free-form attribute pair.
 pub fn with_attribute(
   metadata metadata: Metadata,
   key key: String,
@@ -54,6 +59,7 @@ pub fn with_attribute(
   Metadata(..metadata, attributes: dict.insert(metadata.attributes, key, value))
 }
 
+/// Look up an attribute by key. Returns `None` when no value is set.
 pub fn attribute(metadata metadata: Metadata, key key: String) -> Option(String) {
   case dict.get(metadata.attributes, key) {
     Ok(value) -> Some(value)
@@ -61,6 +67,8 @@ pub fn attribute(metadata metadata: Metadata, key key: String) -> Option(String)
   }
 }
 
+/// `True` when `key` is present in the attribute map (regardless of
+/// its value).
 pub fn has_attribute(metadata metadata: Metadata, key key: String) -> Bool {
   dict.has_key(metadata.attributes, key)
 }

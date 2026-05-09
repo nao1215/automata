@@ -17,10 +17,14 @@ pub opaque type Filter(body) {
   Filter(check: fn(Event(body)) -> Bool)
 }
 
+/// A filter that accepts every event. Useful as the identity element
+/// for `all_of` (the empty list of filters reduces to `always`).
 pub fn always() -> Filter(body) {
   Filter(fn(_) { True })
 }
 
+/// A filter that rejects every event. Useful as the identity element
+/// for `any_of` (the empty list of filters reduces to `never`).
 pub fn never() -> Filter(body) {
   Filter(fn(_) { False })
 }

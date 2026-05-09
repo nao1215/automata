@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `automata/fsevent/path`: `path_is_absolute/1` now returns `True` for
+  Windows drive-letter paths (`C:\foo` / `c:/foo`), matching the
+  documented behaviour. Previously only paths starting with `/` were
+  treated as absolute.
+
+### Changed
+
+- `automata/cron` facade re-exports `Item` constructors as
+  `item_exact/1`, `item_range/2`, `item_step_any/1`, `item_step_from/2`,
+  and `item_step_between/3`, so callers no longer need to import
+  `automata/cron/validator` to compose `cron.one_of/1` arguments.
+- `automata/cron` and `automata/rrule` add `matches_plan/2`,
+  `iterator_after_plan/2`, and `next_after_plan/2` (RRULE adds
+  `matches_plan/2`, `iterator_after_plan/2`, `next_after_plan/2`)
+  variants that accept an already-`normalize`d plan, so callers
+  evaluating the same spec many times can pay the normalisation cost
+  once.
+- `automata/fsevent` facade now re-exports `Entry`, `Snapshot`,
+  `Watch`, `WatchEvent`, and `NormalizedPath` types together with the
+  smart constructors and accessors most callers reach for, so a
+  typical `diff/3` usage no longer requires importing five
+  submodules.
+- README rewritten to lead with a one-line feature list and runnable
+  examples; development setup now lives entirely in
+  `CONTRIBUTING.md`.
+- Doc comments added to the cron / rrule facades, `event/source`,
+  `event/metadata`, and `event/filter` public functions previously
+  left undocumented.
+
 ### Added
 
 - `automata/cron/{ast,parser,validator,normalize,evaluator,iterator,next,builder}`

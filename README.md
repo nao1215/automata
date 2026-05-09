@@ -2,39 +2,23 @@
 
 [![CI](https://github.com/nao1215/automata/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/automata/actions/workflows/ci.yml)
 [![Hex.pm](https://img.shields.io/hexpm/v/automata)](https://hex.pm/packages/automata)
+[![Downloads](https://img.shields.io/hexpm/dt/automata)](https://hex.pm/packages/automata)
+[![Hex Docs](https://img.shields.io/badge/hexdocs-online-purple)](https://hexdocs.pm/automata)
+[![License](https://img.shields.io/hexpm/l/automata)](LICENSE)
 
-Finite automata and schedule helpers for Gleam.
+Building blocks for schedules, events, retries, filesystem-event
+diffs, and finite automata in Gleam. The library is pure data: it
+runs identically on the BEAM and the JavaScript target.
 
-This repository is scaffolded as a cross-target Gleam library with:
+## Features
 
-- `just` tasks for day-to-day development
-- `mise` toolchain management
-- GitHub Actions for CI and release
-- starter `CONTRIBUTING.md`, `SECURITY.md`, and `CHANGELOG.md`
-
-Current modules:
-
-- `automata` - small deterministic automaton helpers
-- `automata/cron` - UNIX cron facade over parser, validator,
-  normalizer, evaluator, iterator, next, and builder modules
-- `automata/rrule` - RFC 5545 RRULE facade over parser, validator,
-  normalizer, evaluator, iterator, next, and builder modules
-- `automata/schedule` - shared abstraction over compiled cron and
-  RRULE schedules
-- `automata/event` - common event abstraction shared across the
-  ecosystem (cron/rrule firings, file-system notifications, manual
-  triggers, future webhooks/queues/signals)
-- `automata/retry` - deterministic retry-policy primitives: pure
-  data describing how to back off after a failure, calculated
-  identically on the BEAM and JavaScript targets
-
-## Requirements
-
-- Gleam 1.15 or later
-- Erlang/OTP 28 or later
-- Node.js 22 or later (for JavaScript-target checks)
-- [just](https://just.systems/) (recommended)
-- [mise](https://mise.jdx.dev/) (recommended)
+- `automata` — deterministic finite automaton helper.
+- `automata/cron` — UNIX 5-field cron with separate parse, validate, normalise, match, iterate, and next phases.
+- `automata/rrule` — RFC 5545 RRULE subset (FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH, BYMONTHDAY, BYHOUR, BYMINUTE) anchored on a `ValidDateTime`.
+- `automata/schedule` — one matcher / iterator / next-after API across compiled cron, RRULE, fixed-interval, and one-shot schedules.
+- `automata/event` — typed `Event(body)` values with source kinds, correlation / causation / trace metadata, and filter / match combinators.
+- `automata/fsevent` — fsnotify-style Create / Write / Remove / Rename / Chmod ops derived from two filesystem snapshots, with file_id-based rename detection.
+- `automata/retry` — deterministic retry policies (fixed, exponential, capped exponential) with optional jitter and a step-by-step `Decision` interface.
 
 ## Install
 
@@ -42,64 +26,7 @@ Current modules:
 gleam add automata
 ```
 
-## Development setup
-
-```sh
-git clone https://github.com/nao1215/automata.git
-cd automata
-mise install
-just deps
-```
-
-`just` recipes source `scripts/lib/mise_bootstrap.sh`, so `mise activate`
-is not required in the current shell.
-
-## Quick start
-
-```gleam
-import automata
-import gleam/io
-
-pub type State {
-  Even
-  Odd
-}
-
-pub fn parity_machine() {
-  automata.new(
-    initial_state: Even,
-    transition: fn(state, symbol) {
-      case state, symbol {
-        Even, 1 -> Odd
-        Odd, 1 -> Even
-        _, _ -> state
-      }
-    },
-    accepting: fn(state) { state == Even },
-  )
-}
-
-pub fn main() {
-  let machine = parity_machine()
-
-  automata.accepts(machine, [1, 0, 1, 1])
-  |> io.debug
-  // False
-}
-```
-
 ## Cron
-
-Initial cron support is intentionally narrow:
-
-- UNIX 5-field only: `minute hour day_of_month month day_of_week`
-- no seconds field
-- no Quartz syntax
-- no Jenkins syntax
-- no embedded timezone syntax
-
-Parsing, validation, normalization, matching, iteration, and
-next-occurrence calculation are separate phases.
 
 ```gleam
 import automata/cron
@@ -119,62 +46,38 @@ pub fn main() {
       second: 0,
     )
 
-  cron.to_string(spec)
-  |> io.debug
-
-  cron.next_after(spec, after: after)
-  |> io.debug
+  cron.next_after(spec, after: after) |> io.debug
 }
 ```
 
-Builder usage:
+Reuse a normalised plan when you evaluate the same spec many times:
+
+```gleam
+let plan = cron.normalize(spec)
+cron.matches_plan(plan: plan, at: now)
+cron.next_after_plan(plan: plan, after: now)
+```
+
+Builder form, without importing the validator submodule:
 
 ```gleam
 import automata/cron
-import automata/cron/validator as cron_validator
 
 pub fn business_hours() {
   cron.builder()
   |> cron.with_minute(cron.every(15))
   |> cron.with_hour(cron.between(from: 9, to: 17))
-  |> cron.with_day_of_week(cron.one_of([cron_validator.Range(1, 5)]))
+  |> cron.with_day_of_week(cron.one_of([cron.item_range(from: 1, to: 5)]))
   |> cron.build
 }
 ```
 
 ## RRULE
 
-`automata/rrule` supports RFC 5545 recurrence rule values with an
-explicitly limited initial feature set.
-
-Supported parts:
-
-- `FREQ`
-- `INTERVAL`
-- `COUNT`
-- `UNTIL`
-- `BYMINUTE`
-- `BYHOUR`
-- `BYDAY`
-- `BYMONTHDAY`
-- `BYMONTH`
-
-Supported input forms:
-
-- raw value: `FREQ=WEEKLY;BYDAY=MO,WE`
-- property line: `RRULE:FREQ=WEEKLY;BYDAY=MO,WE`
-
-Evaluation is anchor-dependent, so normalization and execution-facing
-APIs require a `ValidDateTime` anchor similar to `DTSTART`.
-`ValidDateTime` is constructed via `schedule_ast.try_valid_datetime/6`
-and prevents impossible calendar dates such as 2026-02-30 from
-flowing into match / next_after / iterator entry points.
-
 ```gleam
 import automata/rrule
 import automata/rrule/validator as rule_validator
 import automata/schedule/ast as schedule_ast
-import gleam/io
 
 pub fn every_other_week() {
   let assert Ok(anchor) =
@@ -184,15 +87,6 @@ pub fn every_other_week() {
       day: 5,
       hour: 9,
       minute: 30,
-      second: 0,
-    )
-  let assert Ok(after) =
-    schedule_ast.try_valid_datetime(
-      year: 2026,
-      month: 1,
-      day: 5,
-      hour: 9,
-      minute: 31,
       second: 0,
     )
 
@@ -207,154 +101,47 @@ pub fn every_other_week() {
     |> rrule.with_by_minute([30])
     |> rrule.build
 
-  rrule.next_after(spec, anchor: anchor, after: after)
-  |> io.debug
+  rrule.next_after(spec, anchor: anchor, after: anchor)
 }
 ```
 
-Anchor seconds are preserved end-to-end. An anchor of
-`2026-05-01T09:00:30` produces occurrences at `:30` and the
-exclusive `next_after` / iterator boundary advances by one second
-rather than one minute, so `next_after(after: 09:00:00)` returns
-`09:00:30` of the same day.
+Anchor seconds are preserved end-to-end. `BYSECOND`, `BYYEARDAY`,
+`BYWEEKNO`, `BYSETPOS`, `WKST`, `DTSTART`, `RDATE`, and `EXDATE` are
+not in the supported subset. `rrule.normalize/2` returns an
+`RRulePlan` for use with `rrule.matches_plan` / `iterator_after_plan`
+/ `next_after_plan` when you reuse the same spec/anchor pair.
 
-Frequency-specific validation follows RFC 5545 §3.3.10:
-
-- `FREQ=WEEKLY;BYMONTHDAY=...` is rejected (returns
-  `IncompatibleFrequencyAndPart(Weekly, ByMonthDayPart)`).
-- `FREQ=YEARLY;BYDAY=<n>XX` without `BYMONTH` evaluates the
-  numeric ordinal as an offset within the year. With `BYMONTH`
-  present, the offset is within that month.
-
-Builder construction validates inputs eagerly:
-
-- `with_by_*([])` returns `InvalidList(<part>, "")`.
-- `nth_weekday(ordinal: 0, ...)` returns
-  `InvalidPartValue(ByDayPart, "0XX")`.
-- BYDAY ordinals are bounded per RFC 5545: monthly accepts
-  `[-5, -1] ∪ [1, 5]` and yearly accepts `[-53, -1] ∪ [1, 53]`.
-  Out-of-range values such as `99MO` or `-6MO` are rejected with
-  `InvalidPartValue(ByDayPart, ...)`.
-
-Sparse rules are supported. For example
-`FREQ=YEARLY;INTERVAL=500` produces occurrences ~182,500 days apart
-and the iterator scans up to ~10,950 years before giving up.
-
-Not supported in the current version:
-
-- `BYSECOND`
-- `BYYEARDAY`
-- `BYWEEKNO`
-- `BYSETPOS`
-- `WKST`
-- `DTSTART`, `TZID`, `RDATE`, `EXDATE`, `EXRULE`
-- recurrence set algebra
-
-## Validated date-time construction
-
-`automata/schedule/ast` exposes `try_datetime/6` and
-`try_valid_datetime/6` smart constructors that return `Result`
-when month/day/time components fall outside the Gregorian range.
-The opaque `ValidDateTime` wrapper communicates "already
-validated" at the type level and unwraps with
-`valid_datetime_value/1`.
-
-```gleam
-import automata/schedule/ast as schedule_ast
-
-pub fn safe_anchor() {
-  schedule_ast.try_datetime(
-    year: 2024,
-    month: 2,
-    day: 29,
-    hour: 9,
-    minute: 0,
-    second: 0,
-  )
-}
-```
-
-## Shared schedule API
-
-Cron and RRULE stay separate at the syntax layer, but share one
-compiled abstraction.
+## Schedule
 
 ```gleam
 import automata/cron
 import automata/schedule
-import automata/schedule/ast as schedule_ast
-import gleam/io
 
-pub fn shared_api() {
+pub fn shared_api(now, after) {
   let assert Ok(raw) = cron.parse("*/30 9-17 * * 1-5")
   let assert Ok(spec) = cron.validate(raw)
   let compiled = schedule.from_cron(spec)
 
-  let assert Ok(at) =
-    schedule_ast.try_valid_datetime(
-      year: 2026,
-      month: 5,
-      day: 11,
-      hour: 10,
-      minute: 0,
-      second: 0,
-    )
-  let assert Ok(after) =
-    schedule_ast.try_valid_datetime(
-      year: 2026,
-      month: 5,
-      day: 11,
-      hour: 10,
-      minute: 7,
-      second: 0,
-    )
-
-  schedule.matches(compiled, at: at)
-  |> io.debug
-
+  schedule.matches(compiled, at: now)
   schedule.next_after(compiled, after: after)
-  |> io.debug
 }
 ```
 
-`schedule` also offers two more constructors that share the same
-matching/iterator/next-after API:
-
-- `schedule.from_every(interval_seconds:, anchor:)` for fixed-interval
-  schedules (returns `Error(EveryIntervalMustBePositive(...))` when the
-  interval is non-positive).
-- `schedule.from_once(at:)` for a one-shot schedule that fires exactly
-  once at `at`.
+`schedule.from_every(interval_seconds:, anchor:)` builds a
+fixed-interval schedule; `schedule.from_once(at:)` fires exactly
+once. All four constructors share the same matcher / iterator /
+next-after API.
 
 ## Events
-
-`automata/event` is the common event abstraction shared across the
-automata ecosystem. It defines value-only types for "something
-happened" — schedulers, file watchers, manual triggers, and future
-webhook/queue/signal integrations all produce the same `Event` shape
-so that workers and runtimes can route them with one vocabulary.
-
-The library does not own a runtime. It does not run event loops, send
-network messages, or implement queues. It only defines types,
-metadata, classification, filtering, and matching primitives.
 
 ```gleam
 import automata/event/builtin/body
 import automata/event/builtin/filter as builtin_filter
 import automata/event/filter
+import automata/fsevent/ast as fs_ast
 import automata/schedule/ast as schedule_ast
 
-pub fn cron_event() {
-  let assert Ok(now) =
-    schedule_ast.try_valid_datetime(
-      year: 2026,
-      month: 5,
-      day: 9,
-      hour: 9,
-      minute: 0,
-      second: 0,
-    )
-
+pub fn cron_event(now) {
   body.new(
     id: "evt-001",
     occurred_at: now,
@@ -369,56 +156,67 @@ pub fn cron_event() {
 
 pub fn watch_logs() {
   filter.all_of([
-    builtin_filter.is_file_event(),
+    builtin_filter.is_file_with_op(op: fs_ast.Write),
     builtin_filter.by_path_prefix(prefix: "/var/log/"),
     filter.negate(builtin_filter.by_path_suffix(suffix: ".tmp")),
   ])
 }
 ```
 
-`Event(body)` is parameterised so callers can pipeline typed events
-inside their own code, while ecosystem-wide layers use the
-`BuiltinEvent` alias backed by the closed `EventBody` sum
-(`Scheduled`, `FileCreated`, `FileModified`, `FileDeleted`,
-`FileRenamed`, `Manual`, `Custom`).
-
-`body.new/4` is the canonical constructor for `BuiltinEvent`: it
-takes a `source_id` and derives the `SourceKind` from `body`, so
-`Scheduled` always pairs with `ScheduleSource`, `FileModified` with
+`body.new/4` derives the canonical `SourceKind` from the body, so
+`Scheduled` pairs with `ScheduleSource`, `FileSystem(_)` with
 `FileSystemSource`, and `Custom("vendor.kind", _)` with
-`CustomSource("vendor.kind")`. Source/body misclassification cannot
-arise via this path.
+`CustomSource("vendor.kind")`. `Event.occurred_at` is a
+`ValidDateTime`, which rejects impossible calendar dates such as
+2026-02-30. `event.continue_from/5` chains a child event from a
+parent, copying `correlation_id` and `trace_id` and setting
+`causation_id` automatically.
 
-`Custom(kind, attributes)` is the escape hatch for events that do not
-yet have a typed variant; recommended naming is `"<vendor>.<event>"`
-(for example `"slack.message_posted"`).
+## Filesystem events
 
-`event.continue_from/5` derives a child event whose metadata chains
-from a parent: it copies `correlation_id` and `trace_id` and sets
-`causation_id` to `parent.id`, so chains of custody are preserved
-without manual bookkeeping.
+`automata/fsevent` reproduces fsnotify-style operations as a pure
+function over two `Snapshot` values. The library does not touch the
+filesystem; the caller produces snapshots from a real walk, mocks,
+or a log replay.
 
-`Event.occurred_at` and `Scheduled.fired_at` are typed as
-`ValidDateTime`, so impossible dates such as 2026-02-30 cannot enter
-the event stream. Filter helpers `filter.occurred_between/2`,
-`filter.occurred_after/1`, and `filter.occurred_before/1` likewise
-accept `ValidDateTime`.
+```gleam
+import automata/fsevent
+import gleam/option.{Some}
+
+pub fn detect_change() {
+  let assert Ok(p) = fsevent.normalize("/tmp/a.log")
+  let assert Ok(prev) =
+    fsevent.entry_file(
+      path: p,
+      size: 100,
+      mtime: 1_700_000_000,
+      mode: 0o644,
+      content_hash: Some("abc"),
+      file_id: Some("inode-1"),
+    )
+  let assert Ok(curr) =
+    fsevent.entry_file(
+      path: p,
+      size: 200,
+      mtime: 1_700_000_500,
+      mode: 0o644,
+      content_hash: Some("def"),
+      file_id: Some("inode-1"),
+    )
+  let assert Ok(prev_snap) = fsevent.from_entries([prev])
+  let assert Ok(curr_snap) = fsevent.from_entries([curr])
+
+  fsevent.diff(prev: prev_snap, curr: curr_snap, watch: fsevent.watch())
+}
+```
+
+When both snapshots carry the same `file_id` at different paths, a
+move is reported as a single `Rename` event with `renamed_from`
+attached. Without `file_id`, the move falls back to `Remove` plus
+`Create`. Op masks (`fsevent.with_ops`, `fsevent.unwatch_op`) drop
+unwanted ops before they reach the result list.
 
 ## Retry
-
-`automata/retry` provides retry-policy primitives that other layers
-(HTTP clients, command execution, fsnotify, future runtime, future
-webhook/queue integrations) can reuse with the same vocabulary. The
-module is pure: it does not sleep, spawn processes, own timers, or
-classify failures. It computes, given a policy and a `FailureKind`,
-the next delay and whether to keep going.
-
-Cross-target safety is taken seriously. All arithmetic stays inside
-JavaScript's 53-bit safe integer range, the bundled PRNG (Xorshift32)
-is implemented in Gleam without depending on `Math.random` or
-`:rand`, and the same `(policy, seed, failure-sequence)` triple
-produces the same `Decision` list on the BEAM and on the JavaScript
-target.
 
 ```gleam
 import automata/retry
@@ -441,62 +239,34 @@ pub fn drive(policy) {
   let ctx0 = retry.start(policy: policy, seed: 12_345)
 
   case retry.decide(ctx: ctx0, failure: retry_ast.Transient) {
-    retry.Retry(delay: delay, next: _next_ctx) -> {
-      // Caller (a runtime, an HTTP client) sleeps for `delay`,
-      // re-runs the operation, then calls decide again with
-      // `next_ctx`. The retry module never sleeps itself.
-      delay
-    }
-    retry.GiveUp(reason: _reason) -> {
-      // Reason carries enough structure to log / alert without
-      // string parsing: PolicyDisallowsRetry, MaxAttemptsReached,
-      // PermanentFailureSignaled, DelayOverflow.
-      retry_ast.unsafe_milliseconds(value: 0)
-    }
+    retry.Retry(delay: delay, next: _next) -> delay
+    retry.GiveUp(reason: _reason) -> retry_ast.unsafe_milliseconds(value: 0)
   }
 }
 ```
 
 `max_attempts: N` means N total attempts (one initial try plus
-`N - 1` retries). Permanent failures short-circuit regardless of the
-policy: callers that classify their own errors as `Permanent` get an
-immediate `GiveUp(PermanentFailureSignaled(at_attempt:))` even on a
-generous policy.
+`N - 1` retries). The retry module never sleeps; the caller drives
+the loop and sums `retry.cumulative_delay/1` to apply a wall-clock
+deadline. The bundled PRNG runs in pure Gleam, so the same
+`(policy, seed, failure-sequence)` triple produces the same
+`Decision` list on the BEAM and the JavaScript target.
 
-Inspectable, immutable state lives in an opaque `Context`:
+## Validated date-time
 
-- `retry.current_attempt(ctx)` - number of attempts completed so far.
-- `retry.cumulative_delay(ctx)` - sum of every delay handed out
-  (useful for capping the entire sequence by wall time at the call
-  site, since the retry module itself does not own a clock).
-- `retry.policy(ctx)` - recover the policy a sequence was started
-  from.
+`automata/schedule/ast` exposes `try_datetime/6` and
+`try_valid_datetime/6`, which return `Result` when components fall
+outside the Gregorian range. The opaque `ValidDateTime` then flows
+through cron, RRULE, schedule, and event APIs without further
+revalidation.
 
-## Module layout
+## Documentation
 
-- `automata/cron/ast`, `parser`, `validator`, `normalize`, `evaluator`,
-  `iterator`, `next`, `builder`
-- `automata/rrule/ast`, `parser`, `validator`, `normalize`,
-  `evaluator`, `iterator`, `next`, `builder`
-- `automata/schedule`, `automata/schedule/ast`
-- `automata/event`, `automata/event/source`,
-  `automata/event/metadata`, `automata/event/filter`,
-  `automata/event/match`, `automata/event/builtin/body`,
-  `automata/event/builtin/filter`, `automata/event/builtin/match`
-- `automata/retry`, `automata/retry/ast`
+Full API reference: <https://hexdocs.pm/automata>.
 
-Breaking changes are acceptable in this repository and the current
-schedule APIs prefer correctness and explicit phase separation over
-backward compatibility.
-
-## Commands
-
-```sh
-just ci
-```
-
-Runs format check, lint, type check, Erlang/JavaScript builds, and
-Erlang/JavaScript tests.
+Development setup, code style, and the contribution flow are
+documented in [CONTRIBUTING.md](CONTRIBUTING.md). Released changes
+are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
