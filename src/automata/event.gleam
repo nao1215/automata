@@ -70,9 +70,15 @@ pub fn with_attribute(
 
 /// Derive a new event whose metadata chains from `parent`.
 ///
-/// Copies `correlation_id` and `trace_id` and sets `causation_id` to
-/// `parent.id`. Use this when one event triggers another so the chain
-/// of custody is preserved without manual bookkeeping.
+/// Inherits the parent's `correlation_id`, `trace_id`, and the full
+/// `attributes` dict, and sets `causation_id` to `parent.id`. Use this
+/// when one event triggers another so the chain of custody — and any
+/// attributes that describe the chain itself (tenant, user, request id,
+/// etc.) — is preserved without manual bookkeeping. Reach for
+/// `event.new` plus `with_metadata(metadata.empty())` when the child
+/// should start with a fresh attribute set; the inherited identifiers
+/// are the same value the parent had, so the child can always rebuild
+/// them explicitly when needed.
 pub fn continue_from(
   parent parent: Event(parent_body),
   id id: String,
