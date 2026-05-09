@@ -17,11 +17,11 @@ pub type CronPlan {
 
 pub fn normalize(spec spec: validator.ValidCron) -> CronPlan {
   CronPlan(
-    minute: normalize_selector(spec.minute, 0, 59, False),
-    hour: normalize_selector(spec.hour, 0, 23, False),
-    day_of_month: normalize_selector(spec.day_of_month, 1, 31, False),
-    month: normalize_selector(spec.month, 1, 12, False),
-    day_of_week: normalize_selector(spec.day_of_week, 0, 6, True),
+    minute: normalize_selector(validator.minute(spec), 0, 59, False),
+    hour: normalize_selector(validator.hour(spec), 0, 23, False),
+    day_of_month: normalize_selector(validator.day_of_month(spec), 1, 31, False),
+    month: normalize_selector(validator.month(spec), 1, 12, False),
+    day_of_week: normalize_selector(validator.day_of_week(spec), 0, 6, True),
   )
 }
 

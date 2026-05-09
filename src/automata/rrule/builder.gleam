@@ -10,7 +10,10 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
-pub type Builder {
+/// Mutable-style RRULE builder. `opaque` so the only way to populate
+/// fields is the `with_*` API and the only way to extract a validated
+/// value is `build/1`.
+pub opaque type Builder {
   Builder(
     frequency: validator.Frequency,
     interval: Int,

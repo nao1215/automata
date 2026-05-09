@@ -41,7 +41,10 @@ pub type RulePart {
   ByMinutePart
 }
 
-pub type ValidRRule {
+/// An RRULE that has passed `validate/1`. `opaque` so the only way
+/// to obtain a value is through validation, preventing callers from
+/// forging "validated" inputs.
+pub opaque type ValidRRule {
   ValidRRule(
     frequency: Frequency,
     interval: Int,
@@ -52,6 +55,38 @@ pub type ValidRRule {
     by_hour: Option(List(Int)),
     by_minute: Option(List(Int)),
   )
+}
+
+pub fn frequency(spec: ValidRRule) -> Frequency {
+  spec.frequency
+}
+
+pub fn interval(spec: ValidRRule) -> Int {
+  spec.interval
+}
+
+pub fn end_condition(spec: ValidRRule) -> EndCondition {
+  spec.end_condition
+}
+
+pub fn by_day(spec: ValidRRule) -> Option(List(WeekdaySpecifier)) {
+  spec.by_day
+}
+
+pub fn by_month(spec: ValidRRule) -> Option(List(Int)) {
+  spec.by_month
+}
+
+pub fn by_month_day(spec: ValidRRule) -> Option(List(Int)) {
+  spec.by_month_day
+}
+
+pub fn by_hour(spec: ValidRRule) -> Option(List(Int)) {
+  spec.by_hour
+}
+
+pub fn by_minute(spec: ValidRRule) -> Option(List(Int)) {
+  spec.by_minute
 }
 
 pub type ValidationError {

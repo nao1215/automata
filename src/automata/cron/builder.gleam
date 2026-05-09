@@ -8,7 +8,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-pub type Builder {
+/// Mutable-style cron builder. `opaque` so the only way to populate
+/// fields is the `with_*` API and the only way to extract a validated
+/// value is `build/1`.
+pub opaque type Builder {
   Builder(
     minute: validator.Selector,
     hour: validator.Selector,

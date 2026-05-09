@@ -23,7 +23,10 @@ pub type StepBase {
   StepRange(Int, Int)
 }
 
-pub type ValidCron {
+/// A cron expression that has passed `validate/1`. `opaque` so the
+/// only way to obtain a value is through validation, preventing
+/// callers from forging "validated" inputs.
+pub opaque type ValidCron {
   ValidCron(
     minute: Selector,
     hour: Selector,
@@ -31,6 +34,26 @@ pub type ValidCron {
     month: Selector,
     day_of_week: Selector,
   )
+}
+
+pub fn minute(spec: ValidCron) -> Selector {
+  spec.minute
+}
+
+pub fn hour(spec: ValidCron) -> Selector {
+  spec.hour
+}
+
+pub fn day_of_month(spec: ValidCron) -> Selector {
+  spec.day_of_month
+}
+
+pub fn month(spec: ValidCron) -> Selector {
+  spec.month
+}
+
+pub fn day_of_week(spec: ValidCron) -> Selector {
+  spec.day_of_week
 }
 
 pub type ValidationError {

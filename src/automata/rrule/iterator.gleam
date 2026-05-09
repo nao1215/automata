@@ -7,7 +7,10 @@ import automata/schedule/ast.{
 } as schedule_ast
 import gleam/option.{None, Some}
 
-pub type RRuleIterator {
+/// RRULE iterator state. `opaque` because the cursor and `yielded`
+/// counter must stay synchronised with the embedded plan; an
+/// externally-constructed iterator could break COUNT enforcement.
+pub opaque type RRuleIterator {
   RRuleIterator(plan: RRulePlan, cursor: DateTime, yielded: Int)
 }
 

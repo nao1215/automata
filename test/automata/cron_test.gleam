@@ -146,3 +146,18 @@ pub fn next_after_is_exclusive_test() {
   )
   |> should.equal(Some(vdt(2027, 1, 1, 0, 0, 0)))
 }
+
+pub fn valid_cron_accessors_expose_selectors_test() {
+  let spec = parse_and_validate("0 0 1 1 *")
+
+  cron_validator.day_of_month(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(1)]))
+  cron_validator.month(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(1)]))
+  cron_validator.minute(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(0)]))
+  cron_validator.hour(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(0)]))
+  cron_validator.day_of_week(spec)
+  |> should.equal(cron_validator.Any)
+}

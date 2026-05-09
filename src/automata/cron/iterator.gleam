@@ -7,7 +7,10 @@ import automata/schedule/ast.{
 } as schedule_ast
 import gleam/option.{type Option, None, Some}
 
-pub type CronIterator {
+/// Cron iterator state. `opaque` because the cursor must stay
+/// synchronised with the embedded plan; constructing one with an
+/// arbitrary cursor would skip occurrences.
+pub opaque type CronIterator {
   CronIterator(plan: CronPlan, cursor: DateTime)
 }
 

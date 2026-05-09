@@ -381,3 +381,16 @@ pub fn try_valid_datetime_rejects_impossible_calendar_dates_test() {
   )
   |> should.equal(Error(schedule_ast.InvalidDate(2026, 2, 30)))
 }
+
+pub fn valid_rrule_accessors_expose_components_test() {
+  let spec = parse_and_validate("FREQ=YEARLY;INTERVAL=2;BYHOUR=9;BYMINUTE=0")
+
+  rule_validator.frequency(spec) |> should.equal(rule_validator.Yearly)
+  rule_validator.interval(spec) |> should.equal(2)
+  rule_validator.end_condition(spec) |> should.equal(rule_validator.Forever)
+  rule_validator.by_hour(spec) |> should.equal(Some([9]))
+  rule_validator.by_minute(spec) |> should.equal(Some([0]))
+  rule_validator.by_day(spec) |> should.equal(None)
+  rule_validator.by_month(spec) |> should.equal(None)
+  rule_validator.by_month_day(spec) |> should.equal(None)
+}

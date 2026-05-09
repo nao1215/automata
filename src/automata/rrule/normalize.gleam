@@ -31,17 +31,17 @@ pub fn normalize(
     True ->
       Ok(RRulePlan(
         anchor: anchor,
-        frequency: spec.frequency,
-        interval: spec.interval,
-        end_condition: spec.end_condition,
+        frequency: validator.frequency(spec),
+        interval: validator.interval(spec),
+        end_condition: validator.end_condition(spec),
         by_day: default_by_day(spec, anchor),
         by_month: default_by_month(spec, anchor),
         by_month_day: default_by_month_day(spec, anchor),
-        by_hour: case spec.by_hour {
+        by_hour: case validator.by_hour(spec) {
           Some(values) -> values
           None -> [anchor.time.hour]
         },
-        by_minute: case spec.by_minute {
+        by_minute: case validator.by_minute(spec) {
           Some(values) -> values
           None -> [anchor.time.minute]
         },
@@ -54,10 +54,10 @@ fn default_by_day(
   spec: validator.ValidRRule,
   anchor: DateTime,
 ) -> Option(List(validator.WeekdaySpecifier)) {
-  case spec.by_day {
+  case validator.by_day(spec) {
     Some(values) -> Some(values)
     None ->
-      case spec.frequency {
+      case validator.frequency(spec) {
         validator.Weekly ->
           Some([validator.EveryWeekday(calendar.weekday(anchor))])
         _ -> None
@@ -69,12 +69,12 @@ fn default_by_month(
   spec: validator.ValidRRule,
   anchor: DateTime,
 ) -> Option(List(Int)) {
-  case spec.by_month {
+  case validator.by_month(spec) {
     Some(values) -> Some(values)
     None ->
-      case spec.frequency {
+      case validator.frequency(spec) {
         validator.Yearly ->
-          case spec.by_day, spec.by_month_day {
+          case validator.by_day(spec), validator.by_month_day(spec) {
             None, None -> Some([anchor.date.month])
             _, _ -> None
           }
@@ -87,13 +87,13 @@ fn default_by_month_day(
   spec: validator.ValidRRule,
   anchor: DateTime,
 ) -> Option(List(Int)) {
-  case spec.by_month_day {
+  case validator.by_month_day(spec) {
     Some(values) -> Some(values)
     None ->
-      case spec.by_day {
+      case validator.by_day(spec) {
         Some(_) -> None
         None ->
-          case spec.frequency {
+          case validator.frequency(spec) {
             validator.Monthly -> Some([anchor.date.day])
             validator.Yearly -> Some([anchor.date.day])
             _ -> None
