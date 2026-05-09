@@ -2,7 +2,7 @@ import automata/event.{type Event}
 import automata/event/metadata
 import automata/event/source.{type Source, type SourceKind}
 import automata/internal/calendar
-import automata/schedule/ast.{type DateTime}
+import automata/schedule/ast.{type ValidDateTime} as schedule_ast
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
@@ -71,21 +71,36 @@ pub fn has_attribute(key key: String) -> Filter(body) {
 
 /// Match events whose `occurred_at` falls in `[from, until]` (inclusive).
 pub fn occurred_between(
-  from from: DateTime,
-  until until: DateTime,
+  from from: ValidDateTime,
+  until until: ValidDateTime,
 ) -> Filter(body) {
+  let from_raw = schedule_ast.valid_datetime_value(from)
+  let until_raw = schedule_ast.valid_datetime_value(until)
   Filter(fn(event) {
-    calendar.greater_or_equal(event.occurred_at, from)
-    && calendar.less_or_equal(event.occurred_at, until)
+    let occurred = schedule_ast.valid_datetime_value(event.occurred_at)
+    calendar.greater_or_equal(occurred, from_raw)
+    && calendar.less_or_equal(occurred, until_raw)
   })
 }
 
-pub fn occurred_after(after after: DateTime) -> Filter(body) {
-  Filter(fn(event) { calendar.greater_than(event.occurred_at, after) })
+pub fn occurred_after(after after: ValidDateTime) -> Filter(body) {
+  let after_raw = schedule_ast.valid_datetime_value(after)
+  Filter(fn(event) {
+    calendar.greater_than(
+      schedule_ast.valid_datetime_value(event.occurred_at),
+      after_raw,
+    )
+  })
 }
 
-pub fn occurred_before(before before: DateTime) -> Filter(body) {
-  Filter(fn(event) { calendar.less_than(event.occurred_at, before) })
+pub fn occurred_before(before before: ValidDateTime) -> Filter(body) {
+  let before_raw = schedule_ast.valid_datetime_value(before)
+  Filter(fn(event) {
+    calendar.less_than(
+      schedule_ast.valid_datetime_value(event.occurred_at),
+      before_raw,
+    )
+  })
 }
 
 /// Logical AND across all filters. An empty list is `always`.

@@ -22,64 +22,65 @@ fn parse_and_validate_rrule(input: String) -> rule_validator.ValidRRule {
   spec
 }
 
+fn vdt(
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+) -> schedule_ast.ValidDateTime {
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year:,
+      month:,
+      day:,
+      hour:,
+      minute:,
+      second:,
+    )
+  value
+}
+
 pub fn shared_schedule_matches_cron_test() {
   let compiled =
     schedule.from_cron(parse_and_validate_cron("*/30 9-17 * * 1-5"))
 
-  schedule_evaluator.matches(
-    compiled,
-    at: schedule_ast.datetime(2026, 5, 11, 10, 0, 0),
-  )
+  schedule_evaluator.matches(compiled, at: vdt(2026, 5, 11, 10, 0, 0))
   |> should.equal(True)
 
-  schedule_next.next_after(
-    compiled,
-    after: schedule_ast.datetime(2026, 5, 11, 10, 7, 0),
-  )
-  |> should.equal(Some(schedule_ast.datetime(2026, 5, 11, 10, 30, 0)))
+  schedule_next.next_after(compiled, after: vdt(2026, 5, 11, 10, 7, 0))
+  |> should.equal(Some(vdt(2026, 5, 11, 10, 30, 0)))
 }
 
 pub fn shared_schedule_iterates_rrule_test() {
   let spec = parse_and_validate_rrule("FREQ=DAILY;COUNT=2;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 0)
+  let anchor = vdt(2026, 5, 1, 9, 0, 0)
   let assert Ok(compiled) = schedule.from_rrule(spec, anchor: anchor)
 
   let iterator =
     schedule_iterator.after(
       compiled,
-      boundary: schedule_ast.Exclusive(schedule_ast.datetime(
-        2026,
-        5,
-        1,
-        8,
-        0,
-        0,
-      )),
+      boundary: schedule_ast.Exclusive(vdt(2026, 5, 1, 8, 0, 0)),
     )
 
   let assert schedule.Yield(first_at, next_iterator) =
     schedule_iterator.step(iterator)
-  first_at |> should.equal(schedule_ast.datetime(2026, 5, 1, 9, 0, 0))
+  first_at |> should.equal(vdt(2026, 5, 1, 9, 0, 0))
 
   let assert schedule.Yield(second_at, _) =
     schedule_iterator.step(next_iterator)
-  second_at |> should.equal(schedule_ast.datetime(2026, 5, 2, 9, 0, 0))
+  second_at |> should.equal(vdt(2026, 5, 2, 9, 0, 0))
 }
 
 pub fn shared_schedule_next_after_preserves_rrule_seconds_test() {
   let spec = parse_and_validate_rrule("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 30)
+  let anchor = vdt(2026, 5, 1, 9, 0, 30)
   let assert Ok(compiled) = schedule.from_rrule(spec, anchor: anchor)
 
-  schedule_next.next_after(
-    compiled,
-    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 0),
-  )
-  |> should.equal(Some(schedule_ast.datetime(2026, 5, 1, 9, 0, 30)))
+  schedule_next.next_after(compiled, after: vdt(2026, 5, 1, 9, 0, 0))
+  |> should.equal(Some(vdt(2026, 5, 1, 9, 0, 30)))
 
-  schedule_next.next_after(
-    compiled,
-    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 30),
-  )
-  |> should.equal(Some(schedule_ast.datetime(2026, 5, 2, 9, 0, 30)))
+  schedule_next.next_after(compiled, after: vdt(2026, 5, 1, 9, 0, 30))
+  |> should.equal(Some(vdt(2026, 5, 2, 9, 0, 30)))
 }

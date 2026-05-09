@@ -327,13 +327,39 @@ fn validate_weekday_ordinals(
         False -> Ok(Nil)
         True ->
           case frequency {
-            Monthly -> Ok(Nil)
-            Yearly -> Ok(Nil)
+            Monthly -> validate_ordinal_range(values, 5)
+            Yearly -> validate_ordinal_range(values, 53)
             _ ->
               Error(NumericWeekdayRequiresMonthlyOrYearly(frequency: frequency))
           }
       }
   }
+}
+
+fn validate_ordinal_range(
+  values: List(WeekdaySpecifier),
+  bound: Int,
+) -> Result(Nil, ValidationError) {
+  case values {
+    [] -> Ok(Nil)
+    [item, ..rest] ->
+      case item {
+        NthWeekday(ordinal, day) ->
+          case ordinal_within_bound(ordinal, bound) {
+            True -> validate_ordinal_range(rest, bound)
+            False ->
+              Error(InvalidPartValue(
+                part: ByDayPart,
+                value: int.to_string(ordinal) <> weekday_to_string(day),
+              ))
+          }
+        EveryWeekday(_) -> validate_ordinal_range(rest, bound)
+      }
+  }
+}
+
+fn ordinal_within_bound(ordinal: Int, bound: Int) -> Bool {
+  ordinal != 0 && ordinal >= 0 - bound && ordinal <= bound
 }
 
 fn impossible_month_day(

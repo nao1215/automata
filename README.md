@@ -106,14 +106,20 @@ import gleam/io
 pub fn main() {
   let assert Ok(raw) = cron.parse("*/15 9-17 * * MON-FRI")
   let assert Ok(spec) = cron.validate(raw)
+  let assert Ok(after) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 11,
+      hour: 9,
+      minute: 7,
+      second: 0,
+    )
 
   cron.to_string(spec)
   |> io.debug
 
-  cron.next_after(
-    spec,
-    after: schedule_ast.datetime(2026, 5, 11, 9, 7, 0),
-  )
+  cron.next_after(spec, after: after)
   |> io.debug
 }
 ```
@@ -156,7 +162,10 @@ Supported input forms:
 - property line: `RRULE:FREQ=WEEKLY;BYDAY=MO,WE`
 
 Evaluation is anchor-dependent, so normalization and execution-facing
-APIs require a `DateTime` anchor similar to `DTSTART`.
+APIs require a `ValidDateTime` anchor similar to `DTSTART`.
+`ValidDateTime` is constructed via `schedule_ast.try_valid_datetime/6`
+and prevents impossible calendar dates such as 2026-02-30 from
+flowing into match / next_after / iterator entry points.
 
 ```gleam
 import automata/rrule
@@ -165,7 +174,24 @@ import automata/schedule/ast as schedule_ast
 import gleam/io
 
 pub fn every_other_week() {
-  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 30, 0)
+  let assert Ok(anchor) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 1,
+      day: 5,
+      hour: 9,
+      minute: 30,
+      second: 0,
+    )
+  let assert Ok(after) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 1,
+      day: 5,
+      hour: 9,
+      minute: 31,
+      second: 0,
+    )
 
   let assert Ok(spec) =
     rrule.builder(rule_validator.Weekly)
@@ -178,11 +204,7 @@ pub fn every_other_week() {
     |> rrule.with_by_minute([30])
     |> rrule.build
 
-  rrule.next_after(
-    spec,
-    anchor: anchor,
-    after: schedule_ast.datetime(2026, 1, 5, 9, 31, 0),
-  )
+  rrule.next_after(spec, anchor: anchor, after: after)
   |> io.debug
 }
 ```
@@ -206,6 +228,14 @@ Builder construction validates inputs eagerly:
 - `with_by_*([])` returns `InvalidList(<part>, "")`.
 - `nth_weekday(ordinal: 0, ...)` returns
   `InvalidPartValue(ByDayPart, "0XX")`.
+- BYDAY ordinals are bounded per RFC 5545: monthly accepts
+  `[-5, -1] ∪ [1, 5]` and yearly accepts `[-53, -1] ∪ [1, 53]`.
+  Out-of-range values such as `99MO` or `-6MO` are rejected with
+  `InvalidPartValue(ByDayPart, ...)`.
+
+Sparse rules are supported. For example
+`FREQ=YEARLY;INTERVAL=500` produces occurrences ~182,500 days apart
+and the iterator scans up to ~10,950 years before giving up.
 
 Not supported in the current version:
 
@@ -259,16 +289,29 @@ pub fn shared_api() {
   let assert Ok(spec) = cron.validate(raw)
   let compiled = schedule.from_cron(spec)
 
-  schedule_evaluator.matches(
-    compiled,
-    at: schedule_ast.datetime(2026, 5, 11, 10, 0, 0),
-  )
+  let assert Ok(at) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 11,
+      hour: 10,
+      minute: 0,
+      second: 0,
+    )
+  let assert Ok(after) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 11,
+      hour: 10,
+      minute: 7,
+      second: 0,
+    )
+
+  schedule_evaluator.matches(compiled, at: at)
   |> io.debug
 
-  schedule_next.next_after(
-    compiled,
-    after: schedule_ast.datetime(2026, 5, 11, 10, 7, 0),
-  )
+  schedule_next.next_after(compiled, after: after)
   |> io.debug
 }
 ```
@@ -286,26 +329,32 @@ network messages, or implement queues. It only defines types,
 metadata, classification, filtering, and matching primitives.
 
 ```gleam
-import automata/event
 import automata/event/builtin/body
 import automata/event/builtin/filter as builtin_filter
 import automata/event/filter
-import automata/event/source
 import automata/schedule/ast as schedule_ast
 
 pub fn cron_event() {
-  let now = schedule_ast.datetime(2026, 5, 9, 9, 0, 0)
-  event.new(
+  let assert Ok(now) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 9,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    )
+
+  body.new(
     id: "evt-001",
     occurred_at: now,
-    source: source.schedule(id: "daily-report"),
+    source_id: "daily-report",
     body: body.scheduled(
       plan_id: "daily-report",
       fired_at: now,
       schedule_kind: body.CronSchedule,
     ),
   )
-  |> event.with_correlation_id("trace-2026-05-09")
 }
 
 pub fn watch_logs() {
@@ -323,6 +372,13 @@ inside their own code, while ecosystem-wide layers use the
 (`Scheduled`, `FileCreated`, `FileModified`, `FileDeleted`,
 `FileRenamed`, `Manual`, `Custom`).
 
+`body.new/4` is the canonical constructor for `BuiltinEvent`: it
+takes a `source_id` and derives the `SourceKind` from `body`, so
+`Scheduled` always pairs with `ScheduleSource`, `FileModified` with
+`FileSystemSource`, and `Custom("vendor.kind", _)` with
+`CustomSource("vendor.kind")`. Source/body misclassification cannot
+arise via this path.
+
 `Custom(kind, attributes)` is the escape hatch for events that do not
 yet have a typed variant; recommended naming is `"<vendor>.<event>"`
 (for example `"slack.message_posted"`).
@@ -331,6 +387,12 @@ yet have a typed variant; recommended naming is `"<vendor>.<event>"`
 from a parent: it copies `correlation_id` and `trace_id` and sets
 `causation_id` to `parent.id`, so chains of custody are preserved
 without manual bookkeeping.
+
+`Event.occurred_at` and `Scheduled.fired_at` are typed as
+`ValidDateTime`, so impossible dates such as 2026-02-30 cannot enter
+the event stream. Filter helpers `filter.occurred_between/2`,
+`filter.occurred_after/1`, and `filter.occurred_before/1` likewise
+accept `ValidDateTime`.
 
 ## Module layout
 

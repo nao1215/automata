@@ -8,7 +8,16 @@ import gleam/option.{None}
 import gleeunit/should
 
 fn now() {
-  schedule_ast.datetime(2026, 5, 9, 9, 0, 0)
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 9,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    )
+  value
 }
 
 fn cron_event() {

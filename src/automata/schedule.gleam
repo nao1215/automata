@@ -4,7 +4,7 @@ import automata/cron/validator as cron_validator
 import automata/rrule/iterator as rule_iterator
 import automata/rrule/normalize as rule_normalize
 import automata/rrule/validator as rule_validator
-import automata/schedule/ast.{type DateTime}
+import automata/schedule/ast.{type ValidDateTime} as schedule_ast
 
 pub type Schedule {
   CronSchedule(cron_normalize.CronPlan)
@@ -17,7 +17,7 @@ pub type OccurrenceIterator {
 }
 
 pub type IterStep {
-  Yield(at: DateTime, next: OccurrenceIterator)
+  Yield(at: ValidDateTime, next: OccurrenceIterator)
   Done
 }
 
@@ -29,9 +29,14 @@ pub fn from_cron(spec spec: cron_validator.ValidCron) -> Schedule {
 
 pub fn from_rrule(
   spec spec: rule_validator.ValidRRule,
-  anchor anchor: DateTime,
+  anchor anchor: ValidDateTime,
 ) -> Result(Schedule, rule_normalize.NormalizeError) {
-  case rule_normalize.normalize(spec, anchor: anchor) {
+  case
+    rule_normalize.normalize(
+      spec,
+      anchor: schedule_ast.valid_datetime_value(anchor),
+    )
+  {
     Ok(plan) -> Ok(RRuleSchedule(plan))
     Error(error) -> Error(error)
   }

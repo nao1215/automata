@@ -2,8 +2,9 @@ import automata/cron/evaluator
 import automata/cron/normalize.{type CronPlan, AnyValue, Values}
 import automata/internal/calendar
 import automata/schedule/ast.{
-  type Boundary, type DateTime, DateTime, Exclusive, Inclusive, Time,
-}
+  type Boundary, type DateTime, type ValidDateTime, DateTime, Exclusive,
+  Inclusive, Time,
+} as schedule_ast
 import gleam/option.{type Option, None, Some}
 
 pub type CronIterator {
@@ -11,7 +12,7 @@ pub type CronIterator {
 }
 
 pub type Step {
-  Yield(at: DateTime, next: CronIterator)
+  Yield(at: ValidDateTime, next: CronIterator)
   Done
 }
 
@@ -23,7 +24,7 @@ pub fn step(iterator: CronIterator) -> Step {
   case find_next(iterator.plan, iterator.cursor, 0) {
     Some(at) ->
       Yield(
-        at:,
+        at: schedule_ast.unsafe_assume_valid(at),
         next: CronIterator(
           plan: iterator.plan,
           cursor: calendar.add_minutes(at, 1),
@@ -35,16 +36,20 @@ pub fn step(iterator: CronIterator) -> Step {
 
 fn start_cursor(boundary: Boundary) -> DateTime {
   case boundary {
-    Inclusive(datetime) ->
+    Inclusive(valid) -> {
+      let datetime = schedule_ast.valid_datetime_value(valid)
       case datetime.time.second == 0 {
         True -> datetime
         False -> calendar.ceil_to_next_minute(datetime)
       }
-    Exclusive(datetime) ->
+    }
+    Exclusive(valid) -> {
+      let datetime = schedule_ast.valid_datetime_value(valid)
       case datetime.time.second == 0 {
         True -> calendar.add_minutes(datetime, 1)
         False -> calendar.ceil_to_next_minute(datetime)
       }
+    }
   }
 }
 

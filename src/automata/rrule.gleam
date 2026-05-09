@@ -7,8 +7,8 @@ import automata/rrule/normalize as rule_normalize
 import automata/rrule/parser
 import automata/rrule/validator
 import automata/schedule/ast.{
-  type Boundary, type Date, type DateTime, type Weekday,
-}
+  type Boundary, type Date, type ValidDateTime, type Weekday,
+} as schedule_ast
 import gleam/option.{type Option}
 
 pub fn parse(
@@ -25,9 +25,12 @@ pub fn validate(
 
 pub fn normalize(
   spec spec: validator.ValidRRule,
-  anchor anchor: DateTime,
+  anchor anchor: ValidDateTime,
 ) -> Result(rule_normalize.RRulePlan, rule_normalize.NormalizeError) {
-  rule_normalize.normalize(spec, anchor: anchor)
+  rule_normalize.normalize(
+    spec,
+    anchor: schedule_ast.valid_datetime_value(anchor),
+  )
 }
 
 pub fn to_string(spec spec: validator.ValidRRule) -> String {
@@ -36,21 +39,32 @@ pub fn to_string(spec spec: validator.ValidRRule) -> String {
 
 pub fn matches(
   spec spec: validator.ValidRRule,
-  anchor anchor: DateTime,
-  at at: DateTime,
+  anchor anchor: ValidDateTime,
+  at at: ValidDateTime,
 ) -> Result(Bool, rule_normalize.NormalizeError) {
-  case rule_normalize.normalize(spec, anchor: anchor) {
-    Ok(plan) -> Ok(rule_evaluator.matches(plan, at: at))
+  case
+    rule_normalize.normalize(
+      spec,
+      anchor: schedule_ast.valid_datetime_value(anchor),
+    )
+  {
+    Ok(plan) ->
+      Ok(rule_evaluator.matches(plan, at: schedule_ast.valid_datetime_value(at)))
     Error(error) -> Error(error)
   }
 }
 
 pub fn iterator_after(
   spec spec: validator.ValidRRule,
-  anchor anchor: DateTime,
+  anchor anchor: ValidDateTime,
   boundary boundary: Boundary,
 ) -> Result(rule_iterator.RRuleIterator, rule_normalize.NormalizeError) {
-  case rule_normalize.normalize(spec, anchor: anchor) {
+  case
+    rule_normalize.normalize(
+      spec,
+      anchor: schedule_ast.valid_datetime_value(anchor),
+    )
+  {
     Ok(plan) -> Ok(rule_iterator.after(plan, boundary: boundary))
     Error(error) -> Error(error)
   }
@@ -58,11 +72,23 @@ pub fn iterator_after(
 
 pub fn next_after(
   spec spec: validator.ValidRRule,
-  anchor anchor: DateTime,
-  after after: DateTime,
-) -> Result(Option(DateTime), rule_normalize.NormalizeError) {
-  case rule_normalize.normalize(spec, anchor: anchor) {
-    Ok(plan) -> Ok(rule_next.next_after(plan, after: after))
+  anchor anchor: ValidDateTime,
+  after after: ValidDateTime,
+) -> Result(Option(ValidDateTime), rule_normalize.NormalizeError) {
+  case
+    rule_normalize.normalize(
+      spec,
+      anchor: schedule_ast.valid_datetime_value(anchor),
+    )
+  {
+    Ok(plan) ->
+      Ok(
+        rule_next.next_after(
+          plan,
+          after: schedule_ast.valid_datetime_value(after),
+        )
+        |> option.map(schedule_ast.unsafe_assume_valid),
+      )
     Error(error) -> Error(error)
   }
 }
@@ -105,9 +131,12 @@ pub fn with_until_date(
 
 pub fn with_until_datetime(
   builder: rule_builder.Builder,
-  until: DateTime,
+  until: ValidDateTime,
 ) -> rule_builder.Builder {
-  rule_builder.with_until_datetime(builder, until)
+  rule_builder.with_until_datetime(
+    builder,
+    schedule_ast.valid_datetime_value(until),
+  )
 }
 
 pub fn without_end_condition(

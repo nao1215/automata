@@ -6,7 +6,7 @@ import automata/cron/next as cron_next
 import automata/cron/normalize as cron_normalize
 import automata/cron/parser
 import automata/cron/validator
-import automata/schedule/ast.{type Boundary, type DateTime}
+import automata/schedule/ast.{type Boundary, type ValidDateTime} as schedule_ast
 import gleam/option.{type Option}
 
 pub fn parse(input input: String) -> Result(cron_ast.RawCron, parser.ParseError) {
@@ -27,10 +27,10 @@ pub fn to_string(spec spec: validator.ValidCron) -> String {
   validator.to_string(spec)
 }
 
-pub fn matches(spec spec: validator.ValidCron, at at: DateTime) -> Bool {
+pub fn matches(spec spec: validator.ValidCron, at at: ValidDateTime) -> Bool {
   spec
   |> cron_normalize.normalize
-  |> cron_evaluator.matches(at: at)
+  |> cron_evaluator.matches(at: schedule_ast.valid_datetime_value(at))
 }
 
 pub fn iterator_after(
@@ -44,11 +44,12 @@ pub fn iterator_after(
 
 pub fn next_after(
   spec spec: validator.ValidCron,
-  after after: DateTime,
-) -> Option(DateTime) {
+  after after: ValidDateTime,
+) -> Option(ValidDateTime) {
   spec
   |> cron_normalize.normalize
-  |> cron_next.next_after(after: after)
+  |> cron_next.next_after(after: schedule_ast.valid_datetime_value(after))
+  |> option.map(schedule_ast.unsafe_assume_valid)
 }
 
 pub fn builder() -> cron_builder.Builder {

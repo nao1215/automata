@@ -3,11 +3,21 @@ import automata/event/builtin/body
 import automata/event/metadata
 import automata/event/source
 import automata/schedule/ast as schedule_ast
+import gleam/dict
 import gleam/option.{None, Some}
 import gleeunit/should
 
 fn fixed_now() {
-  schedule_ast.datetime(2026, 5, 9, 12, 0, 0)
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 9,
+      hour: 12,
+      minute: 0,
+      second: 0,
+    )
+  value
 }
 
 pub fn new_event_starts_with_empty_metadata_test() {
@@ -100,6 +110,65 @@ pub fn source_with_name_attaches_label_test() {
   s.kind |> should.equal(source.ScheduleSource)
   s.id |> should.equal("daily-report")
   s.name |> should.equal(Some("Daily report"))
+}
+
+pub fn builtin_new_derives_schedule_source_for_scheduled_test() {
+  let now = fixed_now()
+  let ev =
+    body.new(
+      id: "evt-1",
+      occurred_at: now,
+      source_id: "daily-report",
+      body: body.scheduled(
+        plan_id: "daily-report",
+        fired_at: now,
+        schedule_kind: body.CronSchedule,
+      ),
+    )
+
+  ev.source.kind |> should.equal(source.ScheduleSource)
+  ev.source.id |> should.equal("daily-report")
+  ev.source.name |> should.equal(None)
+}
+
+pub fn builtin_new_derives_file_system_source_for_file_body_test() {
+  let now = fixed_now()
+  let ev =
+    body.new(
+      id: "evt-1",
+      occurred_at: now,
+      source_id: "watch-1",
+      body: body.file_modified(path: "/var/log/app.log"),
+    )
+
+  ev.source.kind |> should.equal(source.FileSystemSource)
+}
+
+pub fn builtin_new_derives_manual_source_for_manual_body_test() {
+  let now = fixed_now()
+  let ev =
+    body.new(
+      id: "evt-1",
+      occurred_at: now,
+      source_id: "ops",
+      body: body.manual(reason: None, actor: None),
+    )
+
+  ev.source.kind |> should.equal(source.ManualSource)
+}
+
+pub fn builtin_new_derives_custom_source_kind_from_custom_body_test() {
+  let now = fixed_now()
+  let ev =
+    body.new(
+      id: "evt-1",
+      occurred_at: now,
+      source_id: "ws-1",
+      body: body.custom(kind: "slack.message_posted", attributes: dict.new()),
+    )
+
+  ev.source.kind |> should.equal(source.CustomSource("slack.message_posted"))
+  ev.source.id |> should.equal("ws-1")
 }
 
 pub fn builtin_body_kind_strings_test() {

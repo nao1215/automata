@@ -12,6 +12,26 @@ fn parse_and_validate(input: String) -> rule_validator.ValidRRule {
   spec
 }
 
+fn vdt(
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+) -> schedule_ast.ValidDateTime {
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year:,
+      month:,
+      day:,
+      hour:,
+      minute:,
+      second:,
+    )
+  value
+}
+
 pub fn parse_accepts_property_prefix_test() {
   let assert Ok(raw) =
     rrule.parse("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;BYHOUR=9;BYMINUTE=30")
@@ -47,7 +67,7 @@ pub fn validate_rejects_count_until_conflict_test() {
 
 pub fn normalize_inherits_anchor_components_test() {
   let spec = parse_and_validate("FREQ=MONTHLY")
-  let anchor = schedule_ast.datetime(2026, 5, 10, 9, 30, 15)
+  let anchor = vdt(2026, 5, 10, 9, 30, 15)
   let assert Ok(plan) = rrule.normalize(spec, anchor: anchor)
 
   plan.by_hour |> should.equal([9])
@@ -61,85 +81,54 @@ pub fn matches_weekly_interval_rule_test() {
     parse_and_validate(
       "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;BYHOUR=9;BYMINUTE=30",
     )
-  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 30, 0)
+  let anchor = vdt(2026, 1, 5, 9, 30, 0)
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 1, 19, 9, 30, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 19, 9, 30, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 1, 12, 9, 30, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 12, 9, 30, 0))
   |> should.equal(Ok(False))
 }
 
 pub fn next_after_respects_count_limit_test() {
   let spec = parse_and_validate("FREQ=DAILY;COUNT=3;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 0)
+  let anchor = vdt(2026, 5, 1, 9, 0, 0)
 
-  rrule.next_after(
-    spec,
-    anchor: anchor,
-    after: schedule_ast.datetime(2026, 5, 2, 9, 0, 0),
-  )
-  |> should.equal(Ok(Some(schedule_ast.datetime(2026, 5, 3, 9, 0, 0))))
+  rrule.next_after(spec, anchor: anchor, after: vdt(2026, 5, 2, 9, 0, 0))
+  |> should.equal(Ok(Some(vdt(2026, 5, 3, 9, 0, 0))))
 
-  rrule.next_after(
-    spec,
-    anchor: anchor,
-    after: schedule_ast.datetime(2026, 5, 3, 9, 0, 0),
-  )
+  rrule.next_after(spec, anchor: anchor, after: vdt(2026, 5, 3, 9, 0, 0))
   |> should.equal(Ok(None))
 }
 
 pub fn until_date_includes_last_matching_day_test() {
   let spec = parse_and_validate("FREQ=DAILY;UNTIL=20260503;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 0)
+  let anchor = vdt(2026, 5, 1, 9, 0, 0)
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 5, 3, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 5, 3, 9, 0, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 5, 4, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 5, 4, 9, 0, 0))
   |> should.equal(Ok(False))
 }
 
 pub fn iterator_yields_rrule_occurrences_in_order_test() {
   let spec = parse_and_validate("FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=9;BYMINUTE=30")
-  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 30, 0)
+  let anchor = vdt(2026, 1, 5, 9, 30, 0)
   let assert Ok(iterator) =
     rrule.iterator_after(
       spec,
       anchor: anchor,
-      boundary: schedule_ast.Exclusive(schedule_ast.datetime(
-        2026,
-        1,
-        5,
-        8,
-        0,
-        0,
-      )),
+      boundary: schedule_ast.Exclusive(vdt(2026, 1, 5, 8, 0, 0)),
     )
 
   let assert rule_iterator.Yield(first_at, second_iterator) =
     rule_iterator.step(iterator)
-  first_at |> should.equal(schedule_ast.datetime(2026, 1, 5, 9, 30, 0))
+  first_at |> should.equal(vdt(2026, 1, 5, 9, 30, 0))
 
   let assert rule_iterator.Yield(second_at, _) =
     rule_iterator.step(second_iterator)
-  second_at |> should.equal(schedule_ast.datetime(2026, 1, 7, 9, 30, 0))
+  second_at |> should.equal(vdt(2026, 1, 7, 9, 30, 0))
 }
 
 pub fn builder_round_trips_to_valid_rrule_test() {
@@ -161,99 +150,60 @@ pub fn builder_round_trips_to_valid_rrule_test() {
 
 pub fn next_after_preserves_anchor_seconds_test() {
   let spec = parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 30)
+  let anchor = vdt(2026, 5, 1, 9, 0, 30)
 
-  rrule.next_after(
-    spec,
-    anchor: anchor,
-    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 0),
-  )
-  |> should.equal(Ok(Some(schedule_ast.datetime(2026, 5, 1, 9, 0, 30))))
+  rrule.next_after(spec, anchor: anchor, after: vdt(2026, 5, 1, 9, 0, 0))
+  |> should.equal(Ok(Some(vdt(2026, 5, 1, 9, 0, 30))))
 
-  rrule.next_after(
-    spec,
-    anchor: anchor,
-    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 30),
-  )
-  |> should.equal(Ok(Some(schedule_ast.datetime(2026, 5, 2, 9, 0, 30))))
+  rrule.next_after(spec, anchor: anchor, after: vdt(2026, 5, 1, 9, 0, 30))
+  |> should.equal(Ok(Some(vdt(2026, 5, 2, 9, 0, 30))))
 }
 
 pub fn iterator_after_preserves_anchor_seconds_test() {
   let spec = parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 30)
+  let anchor = vdt(2026, 5, 1, 9, 0, 30)
   let assert Ok(iterator) =
     rrule.iterator_after(
       spec,
       anchor: anchor,
-      boundary: schedule_ast.Exclusive(schedule_ast.datetime(
-        2026,
-        5,
-        1,
-        9,
-        0,
-        0,
-      )),
+      boundary: schedule_ast.Exclusive(vdt(2026, 5, 1, 9, 0, 0)),
     )
 
   let assert rule_iterator.Yield(first_at, second_iterator) =
     rule_iterator.step(iterator)
-  first_at |> should.equal(schedule_ast.datetime(2026, 5, 1, 9, 0, 30))
+  first_at |> should.equal(vdt(2026, 5, 1, 9, 0, 30))
 
   let assert rule_iterator.Yield(second_at, _) =
     rule_iterator.step(second_iterator)
-  second_at |> should.equal(schedule_ast.datetime(2026, 5, 2, 9, 0, 30))
+  second_at |> should.equal(vdt(2026, 5, 2, 9, 0, 30))
 }
 
 pub fn yearly_numeric_byday_uses_year_scope_when_no_bymonth_test() {
   let spec = parse_and_validate("FREQ=YEARLY;BYDAY=1MO;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 0, 0)
+  let anchor = vdt(2026, 1, 5, 9, 0, 0)
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 1, 5, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 5, 9, 0, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2027, 1, 4, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2027, 1, 4, 9, 0, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 2, 2, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 2, 2, 9, 0, 0))
   |> should.equal(Ok(False))
 }
 
 pub fn yearly_numeric_byday_with_bymonth_uses_month_scope_test() {
   let spec =
     parse_and_validate("FREQ=YEARLY;BYMONTH=3;BYDAY=1MO;BYHOUR=9;BYMINUTE=0")
-  let anchor = schedule_ast.datetime(2026, 3, 2, 9, 0, 0)
+  let anchor = vdt(2026, 3, 2, 9, 0, 0)
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 3, 2, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 3, 2, 9, 0, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2027, 3, 1, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2027, 3, 1, 9, 0, 0))
   |> should.equal(Ok(True))
 
-  rrule.matches(
-    spec,
-    anchor: anchor,
-    at: schedule_ast.datetime(2026, 1, 5, 9, 0, 0),
-  )
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 5, 9, 0, 0))
   |> should.equal(Ok(False))
 }
 
@@ -335,4 +285,99 @@ pub fn valid_datetime_round_trips_value_test() {
 
   schedule_ast.valid_datetime_value(valid)
   |> should.equal(schedule_ast.datetime(2026, 5, 9, 12, 0, 0))
+}
+
+pub fn validate_rejects_byday_ordinal_above_5_for_monthly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=MONTHLY;BYDAY=6MO")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "6MO",
+    )),
+  )
+}
+
+pub fn validate_rejects_byday_ordinal_below_minus_5_for_monthly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=MONTHLY;BYDAY=-6MO")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "-6MO",
+    )),
+  )
+}
+
+pub fn validate_rejects_byday_ordinal_above_53_for_yearly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=YEARLY;BYDAY=99MO")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "99MO",
+    )),
+  )
+}
+
+pub fn validate_accepts_byday_ordinal_within_yearly_range_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=YEARLY;BYDAY=53MO;BYHOUR=9;BYMINUTE=0")
+  let assert Ok(_) = rrule.validate(raw)
+}
+
+pub fn builder_rejects_byday_ordinal_above_5_for_monthly_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_day([rrule.nth_weekday(ordinal: 6, day: schedule_ast.Monday)])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "6MO",
+    )),
+  )
+}
+
+pub fn builder_rejects_byday_ordinal_above_53_for_yearly_test() {
+  rrule.builder(rule_validator.Yearly)
+  |> rrule.with_by_day([
+    rrule.nth_weekday(ordinal: 99, day: schedule_ast.Monday),
+  ])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "99MO",
+    )),
+  )
+}
+
+pub fn yearly_interval_500_finds_distant_occurrence_test() {
+  // INTERVAL=500 places occurrences ~500 years (~182,500 days) apart,
+  // well past the previous 150,000-day search cap.
+  let spec =
+    parse_and_validate(
+      "FREQ=YEARLY;INTERVAL=500;BYMONTH=1;BYMONTHDAY=1;BYHOUR=0;BYMINUTE=0",
+    )
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+
+  rrule.next_after(spec, anchor: anchor, after: vdt(2026, 1, 1, 0, 0, 0))
+  |> should.equal(Ok(Some(vdt(2526, 1, 1, 0, 0, 0))))
+}
+
+pub fn try_valid_datetime_rejects_impossible_calendar_dates_test() {
+  // Lock-in for the public API contract: callers must obtain a
+  // `ValidDateTime` via `try_valid_datetime`, so impossible dates such
+  // as 2026-02-30 cannot reach `rrule.matches` / `rrule.next_after`.
+  schedule_ast.try_valid_datetime(
+    year: 2026,
+    month: 2,
+    day: 30,
+    hour: 0,
+    minute: 0,
+    second: 0,
+  )
+  |> should.equal(Error(schedule_ast.InvalidDate(2026, 2, 30)))
 }

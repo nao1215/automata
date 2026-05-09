@@ -1,6 +1,6 @@
 import automata/event/metadata.{type Metadata}
 import automata/event/source.{type Source}
-import automata/schedule/ast.{type DateTime}
+import automata/schedule/ast.{type ValidDateTime}
 import gleam/option.{Some}
 
 /// An immutable record describing "something happened".
@@ -11,7 +11,7 @@ import gleam/option.{Some}
 pub type Event(body) {
   Event(
     id: String,
-    occurred_at: DateTime,
+    occurred_at: ValidDateTime,
     source: Source,
     body: body,
     metadata: Metadata,
@@ -25,7 +25,7 @@ pub type Event(body) {
 /// transport.
 pub fn new(
   id id: String,
-  occurred_at occurred_at: DateTime,
+  occurred_at occurred_at: ValidDateTime,
   source source: Source,
   body body: body,
 ) -> Event(body) {
@@ -76,7 +76,7 @@ pub fn with_attribute(
 pub fn continue_from(
   parent parent: Event(parent_body),
   id id: String,
-  occurred_at occurred_at: DateTime,
+  occurred_at occurred_at: ValidDateTime,
   source source: Source,
   body body: body,
 ) -> Event(body) {

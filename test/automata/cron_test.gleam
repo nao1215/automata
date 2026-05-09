@@ -13,6 +13,26 @@ fn parse_and_validate(input: String) -> cron_validator.ValidCron {
   spec
 }
 
+fn vdt(
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+) -> schedule_ast.ValidDateTime {
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year:,
+      month:,
+      day:,
+      hour:,
+      minute:,
+      second:,
+    )
+  value
+}
+
 pub fn parse_splits_unix_fields_test() {
   cron.parse("*/15 9-17 * * MON-FRI")
   |> should.equal(
@@ -68,19 +88,19 @@ pub fn validate_keeps_dom_dow_or_semantics_test() {
 pub fn matches_business_hours_test() {
   let spec = parse_and_validate("*/15 9-17 * * 1-5")
 
-  cron.matches(spec, at: schedule_ast.datetime(2026, 5, 11, 9, 30, 0))
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 30, 0))
   |> should.equal(True)
-  cron.matches(spec, at: schedule_ast.datetime(2026, 5, 11, 9, 31, 0))
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 31, 0))
   |> should.equal(False)
-  cron.matches(spec, at: schedule_ast.datetime(2026, 5, 16, 9, 30, 0))
+  cron.matches(spec, at: vdt(2026, 5, 16, 9, 30, 0))
   |> should.equal(False)
 }
 
 pub fn next_after_finds_next_minute_slot_test() {
   let spec = parse_and_validate("*/15 9-17 * * 1-5")
 
-  cron.next_after(spec, after: schedule_ast.datetime(2026, 5, 11, 9, 7, 0))
-  |> should.equal(Some(schedule_ast.datetime(2026, 5, 11, 9, 15, 0)))
+  cron.next_after(spec, after: vdt(2026, 5, 11, 9, 7, 0))
+  |> should.equal(Some(vdt(2026, 5, 11, 9, 15, 0)))
 }
 
 pub fn iterator_yields_occurrences_in_order_test() {
@@ -89,23 +109,16 @@ pub fn iterator_yields_occurrences_in_order_test() {
   let first_iterator =
     cron.iterator_after(
       spec,
-      boundary: schedule_ast.Exclusive(schedule_ast.datetime(
-        2026,
-        5,
-        11,
-        8,
-        0,
-        0,
-      )),
+      boundary: schedule_ast.Exclusive(vdt(2026, 5, 11, 8, 0, 0)),
     )
 
   let assert cron_iterator.Yield(first_at, second_iterator) =
     cron_iterator.step(first_iterator)
-  first_at |> should.equal(schedule_ast.datetime(2026, 5, 11, 9, 0, 0))
+  first_at |> should.equal(vdt(2026, 5, 11, 9, 0, 0))
 
   let assert cron_iterator.Yield(second_at, _) =
     cron_iterator.step(second_iterator)
-  second_at |> should.equal(schedule_ast.datetime(2026, 5, 12, 9, 0, 0))
+  second_at |> should.equal(vdt(2026, 5, 12, 9, 0, 0))
 }
 
 pub fn builder_round_trips_to_valid_cron_test() {
@@ -129,7 +142,7 @@ pub fn builder_rejects_empty_selector_test() {
 pub fn next_after_is_exclusive_test() {
   cron.next_after(
     parse_and_validate("0 0 1 1 *"),
-    after: schedule_ast.datetime(2026, 1, 1, 0, 0, 0),
+    after: vdt(2026, 1, 1, 0, 0, 0),
   )
-  |> should.equal(Some(schedule_ast.datetime(2027, 1, 1, 0, 0, 0)))
+  |> should.equal(Some(vdt(2027, 1, 1, 0, 0, 0)))
 }

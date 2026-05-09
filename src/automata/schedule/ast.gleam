@@ -35,9 +35,12 @@ pub opaque type ValidDateTime {
 }
 
 /// Boundary semantics used when starting iteration.
+///
+/// Both variants wrap `ValidDateTime` so iterators can never be
+/// started from an impossible date such as 2026-02-30.
 pub type Boundary {
-  Inclusive(DateTime)
-  Exclusive(DateTime)
+  Inclusive(ValidDateTime)
+  Exclusive(ValidDateTime)
 }
 
 /// Errors that can occur when smart-constructing `DateTime` values.
@@ -106,6 +109,19 @@ pub fn try_valid_datetime(
 /// Recover the raw `DateTime` value from a `ValidDateTime`.
 pub fn valid_datetime_value(valid: ValidDateTime) -> DateTime {
   valid.value
+}
+
+/// Wrap a `DateTime` produced by trusted internal arithmetic into a
+/// `ValidDateTime` without re-running the validation. Calendar
+/// arithmetic such as `add_seconds` / `next_day` preserves validity,
+/// so this is safe for round-tripping iterator output back into the
+/// public API.
+///
+/// Marked `@internal`: prefer `try_valid_datetime/6` outside this
+/// package. External callers see a deprecation warning.
+@internal
+pub fn unsafe_assume_valid(value value: DateTime) -> ValidDateTime {
+  ValidDateTime(value: value)
 }
 
 fn is_valid_date_components(year: Int, month: Int, day: Int) -> Bool {

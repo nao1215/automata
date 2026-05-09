@@ -139,7 +139,10 @@ pub fn next_occurrence(
   search search: DateTime,
   guard guard: Int,
 ) -> Option(DateTime) {
-  case guard > 150_000 {
+  // 4_000_000 days ~ 10,950 years: high enough to admit sparse rules
+  // such as YEARLY;INTERVAL=500 while still bounding pathological loops
+  // that survive validation (e.g. INTERVAL with leap-day filters).
+  case guard > 4_000_000 {
     True -> None
     False -> {
       let start = case calendar.less_than(search, plan.anchor) {

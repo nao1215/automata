@@ -2,7 +2,9 @@ import automata/internal/calendar
 import automata/rrule/evaluator
 import automata/rrule/normalize.{type RRulePlan}
 import automata/rrule/validator
-import automata/schedule/ast.{type Boundary, type DateTime, Exclusive, Inclusive}
+import automata/schedule/ast.{
+  type Boundary, type DateTime, type ValidDateTime, Exclusive, Inclusive,
+} as schedule_ast
 import gleam/option.{None, Some}
 
 pub type RRuleIterator {
@@ -10,7 +12,7 @@ pub type RRuleIterator {
 }
 
 pub type Step {
-  Yield(at: DateTime, next: RRuleIterator)
+  Yield(at: ValidDateTime, next: RRuleIterator)
   Done
 }
 
@@ -38,7 +40,7 @@ fn yield_next(iterator: RRuleIterator) -> Step {
   case evaluator.next_occurrence(iterator.plan, iterator.cursor, 0) {
     Some(at) ->
       Yield(
-        at: at,
+        at: schedule_ast.unsafe_assume_valid(at),
         next: RRuleIterator(
           plan: iterator.plan,
           cursor: calendar.add_seconds(at, 1),
@@ -51,15 +53,19 @@ fn yield_next(iterator: RRuleIterator) -> Step {
 
 fn start_cursor(plan: RRulePlan, boundary: Boundary) -> DateTime {
   case boundary {
-    Inclusive(datetime) ->
+    Inclusive(valid) -> {
+      let datetime = schedule_ast.valid_datetime_value(valid)
       case calendar.less_than(datetime, plan.anchor) {
         True -> plan.anchor
         False -> datetime
       }
-    Exclusive(datetime) ->
+    }
+    Exclusive(valid) -> {
+      let datetime = schedule_ast.valid_datetime_value(valid)
       case calendar.less_than(datetime, plan.anchor) {
         True -> plan.anchor
         False -> calendar.add_seconds(datetime, 1)
       }
+    }
   }
 }

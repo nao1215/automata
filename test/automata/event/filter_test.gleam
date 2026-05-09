@@ -8,7 +8,16 @@ import gleam/dict
 import gleeunit/should
 
 fn at(year: Int, month: Int, day: Int) {
-  schedule_ast.datetime(year, month, day, 9, 0, 0)
+  let assert Ok(value) =
+    schedule_ast.try_valid_datetime(
+      year:,
+      month:,
+      day:,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    )
+  value
 }
 
 fn scheduled_event(id: String, plan: String) {
