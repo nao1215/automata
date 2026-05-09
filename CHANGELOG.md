@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Property-based and metamorphic tests using
+  [metamon](https://github.com/nao1215/metamon) covering the top-level
+  `Automaton` API (parity machine acceptance and the
+  "appending two `1`s preserves acceptance" metamorphic relation) and
+  the `automata/retry` policy / context surface (round-trip on
+  `Duration` milliseconds, `from_seconds` ↔ `duration_milliseconds`
+  consistency, `no_retry` always gives up on `Transient`, `Permanent`
+  failure short-circuits regardless of policy, fresh `Context` has zero
+  attempt count and zero cumulative delay, smart-constructor rejection
+  of non-positive `max_attempts` and `multiplier < 2`). Lives in
+  `test/automata_metamon_test.gleam`.
+
 ## [0.3.0] - 2026-05-09
 
 ### Added
