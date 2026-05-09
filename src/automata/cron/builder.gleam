@@ -119,6 +119,10 @@ pub fn build(
               validator.InvalidList(field: Expression, value:)
             parser.InvalidFieldCount(expected: _, actual: _) ->
               validator.InvalidList(field: Expression, value: rendered)
+            // Unreachable in practice: the builder composes a 5-field
+            // expression from typed selectors, never an `@` nickname.
+            parser.RebootNotSupported(value:) ->
+              validator.UnsupportedSyntax(field: Expression, value:)
           })
       }
     }
