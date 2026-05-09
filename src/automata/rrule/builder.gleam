@@ -7,6 +7,7 @@ import automata/schedule/ast.{
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 pub type Builder {
@@ -95,15 +96,115 @@ pub fn with_by_minute(builder: Builder, values: List(Int)) -> Builder {
 pub fn build(
   builder builder: Builder,
 ) -> Result(validator.ValidRRule, validator.ValidationError) {
-  let rendered = render(builder)
+  case validate_inputs(builder) {
+    Error(error) -> Error(error)
+    Ok(_) -> {
+      let rendered = render(builder)
 
-  case parser.parse(input: rendered) {
-    Ok(raw) -> validator.validate(raw)
-    Error(_) ->
-      Error(validator.InvalidPartValue(
-        part: validator.FreqPart,
-        value: rendered,
+      case parser.parse(input: rendered) {
+        Ok(raw) -> validator.validate(raw)
+        Error(error) -> Error(translate_parser_error(error))
+      }
+    }
+  }
+}
+
+fn validate_inputs(builder: Builder) -> Result(Nil, validator.ValidationError) {
+  use _ <- result.try(validate_interval(builder.interval))
+  use _ <- result.try(validate_end_condition(builder.end_condition))
+  use _ <- result.try(validate_optional_list(
+    builder.by_day,
+    validator.ByDayPart,
+  ))
+  use _ <- result.try(validate_weekday_specifiers(builder.by_day))
+  use _ <- result.try(validate_optional_list(
+    builder.by_month,
+    validator.ByMonthPart,
+  ))
+  use _ <- result.try(validate_optional_list(
+    builder.by_month_day,
+    validator.ByMonthDayPart,
+  ))
+  use _ <- result.try(validate_optional_list(
+    builder.by_hour,
+    validator.ByHourPart,
+  ))
+  validate_optional_list(builder.by_minute, validator.ByMinutePart)
+}
+
+fn validate_interval(interval: Int) -> Result(Nil, validator.ValidationError) {
+  case interval > 0 {
+    True -> Ok(Nil)
+    False ->
+      Error(validator.MustBePositive(
+        part: validator.IntervalPart,
+        actual: interval,
       ))
+  }
+}
+
+fn validate_end_condition(
+  end_condition: validator.EndCondition,
+) -> Result(Nil, validator.ValidationError) {
+  case end_condition {
+    validator.Count(count) ->
+      case count > 0 {
+        True -> Ok(Nil)
+        False ->
+          Error(validator.MustBePositive(
+            part: validator.CountPart,
+            actual: count,
+          ))
+      }
+    _ -> Ok(Nil)
+  }
+}
+
+fn validate_optional_list(
+  values: Option(List(a)),
+  part: validator.RulePart,
+) -> Result(Nil, validator.ValidationError) {
+  case values {
+    None -> Ok(Nil)
+    Some([]) -> Error(validator.InvalidList(part: part, value: ""))
+    Some(_) -> Ok(Nil)
+  }
+}
+
+fn validate_weekday_specifiers(
+  values: Option(List(validator.WeekdaySpecifier)),
+) -> Result(Nil, validator.ValidationError) {
+  case values {
+    None -> Ok(Nil)
+    Some(items) -> check_weekday_items(items)
+  }
+}
+
+fn check_weekday_items(
+  items: List(validator.WeekdaySpecifier),
+) -> Result(Nil, validator.ValidationError) {
+  case items {
+    [] -> Ok(Nil)
+    [item, ..rest] ->
+      case item {
+        validator.NthWeekday(0, day) ->
+          Error(validator.InvalidPartValue(
+            part: validator.ByDayPart,
+            value: "0" <> weekday_to_string(day),
+          ))
+        _ -> check_weekday_items(rest)
+      }
+  }
+}
+
+fn translate_parser_error(error: parser.ParseError) -> validator.ValidationError {
+  case error {
+    parser.InvalidRule(value:) ->
+      validator.InvalidPartValue(part: validator.FreqPart, value: value)
+    parser.InvalidPartSyntax(value:) ->
+      validator.InvalidPartValue(part: validator.FreqPart, value: value)
+    parser.EmptyPart(value:) ->
+      validator.InvalidPartValue(part: validator.FreqPart, value: value)
   }
 }
 

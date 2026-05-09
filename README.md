@@ -184,6 +184,26 @@ pub fn every_other_week() {
 }
 ```
 
+Anchor seconds are preserved end-to-end. An anchor of
+`2026-05-01T09:00:30` produces occurrences at `:30` and the
+exclusive `next_after` / iterator boundary advances by one second
+rather than one minute, so `next_after(after: 09:00:00)` returns
+`09:00:30` of the same day.
+
+Frequency-specific validation follows RFC 5545 §3.3.10:
+
+- `FREQ=WEEKLY;BYMONTHDAY=...` is rejected (returns
+  `IncompatibleFrequencyAndPart(Weekly, ByMonthDayPart)`).
+- `FREQ=YEARLY;BYDAY=<n>XX` without `BYMONTH` evaluates the
+  numeric ordinal as an offset within the year. With `BYMONTH`
+  present, the offset is within that month.
+
+Builder construction validates inputs eagerly:
+
+- `with_by_*([])` returns `InvalidList(<part>, "")`.
+- `nth_weekday(ordinal: 0, ...)` returns
+  `InvalidPartValue(ByDayPart, "0XX")`.
+
 Not supported in the current version:
 
 - `BYSECOND`
@@ -193,6 +213,30 @@ Not supported in the current version:
 - `WKST`
 - `DTSTART`, `TZID`, `RDATE`, `EXDATE`, `EXRULE`
 - recurrence set algebra
+
+## Validated date-time construction
+
+`automata/schedule/ast` exposes `try_datetime/6` and
+`try_valid_datetime/6` smart constructors that return `Result`
+when month/day/time components fall outside the Gregorian range.
+The opaque `ValidDateTime` wrapper communicates "already
+validated" at the type level and unwraps with
+`valid_datetime_value/1`.
+
+```gleam
+import automata/schedule/ast as schedule_ast
+
+pub fn safe_anchor() {
+  schedule_ast.try_datetime(
+    year: 2024,
+    month: 2,
+    day: 29,
+    hour: 9,
+    minute: 0,
+    second: 0,
+  )
+}
+```
 
 ## Shared schedule API
 

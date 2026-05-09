@@ -41,7 +41,7 @@ fn yield_next(iterator: RRuleIterator) -> Step {
         at: at,
         next: RRuleIterator(
           plan: iterator.plan,
-          cursor: calendar.add_minutes(at, 1),
+          cursor: calendar.add_seconds(at, 1),
           yielded: iterator.yielded + 1,
         ),
       )
@@ -59,7 +59,7 @@ fn start_cursor(plan: RRulePlan, boundary: Boundary) -> DateTime {
     Exclusive(datetime) ->
       case calendar.less_than(datetime, plan.anchor) {
         True -> plan.anchor
-        False -> calendar.add_minutes(datetime, 1)
+        False -> calendar.add_seconds(datetime, 1)
       }
   }
 }

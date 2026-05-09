@@ -178,6 +178,17 @@ pub fn add_minutes(datetime: DateTime, minutes: Int) -> DateTime {
   }
 }
 
+pub fn add_seconds(datetime: DateTime, seconds: Int) -> DateTime {
+  case seconds == 0 {
+    True -> datetime
+    False ->
+      case seconds > 0 {
+        True -> add_positive_seconds(datetime, seconds)
+        False -> add_negative_seconds(datetime, 0 - seconds)
+      }
+  }
+}
+
 pub fn add_days(datetime: DateTime, days: Int) -> DateTime {
   case days == 0 {
     True -> datetime
@@ -326,6 +337,72 @@ fn add_negative_minutes(datetime: DateTime, minutes: Int) -> DateTime {
   case minutes {
     0 -> datetime
     _ -> add_negative_minutes(subtract_one_minute(datetime), minutes - 1)
+  }
+}
+
+fn add_positive_seconds(datetime: DateTime, seconds: Int) -> DateTime {
+  case seconds {
+    0 -> datetime
+    _ -> add_positive_seconds(add_one_second(datetime), seconds - 1)
+  }
+}
+
+fn add_negative_seconds(datetime: DateTime, seconds: Int) -> DateTime {
+  case seconds {
+    0 -> datetime
+    _ -> add_negative_seconds(subtract_one_second(datetime), seconds - 1)
+  }
+}
+
+fn add_one_second(datetime: DateTime) -> DateTime {
+  case datetime.time.second < 59 {
+    True ->
+      DateTime(
+        date: datetime.date,
+        time: Time(
+          hour: datetime.time.hour,
+          minute: datetime.time.minute,
+          second: datetime.time.second + 1,
+        ),
+      )
+    False ->
+      add_one_minute(DateTime(
+        date: datetime.date,
+        time: Time(
+          hour: datetime.time.hour,
+          minute: datetime.time.minute,
+          second: 0,
+        ),
+      ))
+  }
+}
+
+fn subtract_one_second(datetime: DateTime) -> DateTime {
+  case datetime.time.second > 0 {
+    True ->
+      DateTime(
+        date: datetime.date,
+        time: Time(
+          hour: datetime.time.hour,
+          minute: datetime.time.minute,
+          second: datetime.time.second - 1,
+        ),
+      )
+    False -> {
+      let prev =
+        subtract_one_minute(DateTime(
+          date: datetime.date,
+          time: Time(
+            hour: datetime.time.hour,
+            minute: datetime.time.minute,
+            second: 0,
+          ),
+        ))
+      DateTime(
+        date: prev.date,
+        time: Time(hour: prev.time.hour, minute: prev.time.minute, second: 59),
+      )
+    }
   }
 }
 

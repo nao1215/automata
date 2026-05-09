@@ -67,6 +67,7 @@ pub type ValidationError {
   MutuallyExclusiveParts(left: RulePart, right: RulePart)
   NumericWeekdayRequiresMonthlyOrYearly(frequency: Frequency)
   ImpossibleDate(by_month: String, by_month_day: String)
+  IncompatibleFrequencyAndPart(frequency: Frequency, part: RulePart)
 }
 
 type PartialRule {
@@ -269,25 +270,42 @@ fn finalize(partial: PartialRule) -> Result(ValidRRule, ValidationError) {
 }
 
 fn validate_semantics(spec: ValidRRule) -> Result(Nil, ValidationError) {
-  case validate_weekday_ordinals(spec.frequency, spec.by_day) {
+  case validate_frequency_compatibility(spec) {
     Error(error) -> Error(error)
     Ok(_) ->
-      case impossible_month_day(spec.by_month, spec.by_month_day) {
-        True ->
-          Error(
-            ImpossibleDate(
-              by_month: case spec.by_month {
-                Some(values) -> int_list_to_string(values)
-                None -> "*"
-              },
-              by_month_day: case spec.by_month_day {
-                Some(values) -> int_list_to_string(values)
-                None -> "*"
-              },
-            ),
-          )
-        False -> Ok(Nil)
+      case validate_weekday_ordinals(spec.frequency, spec.by_day) {
+        Error(error) -> Error(error)
+        Ok(_) ->
+          case impossible_month_day(spec.by_month, spec.by_month_day) {
+            True ->
+              Error(
+                ImpossibleDate(
+                  by_month: case spec.by_month {
+                    Some(values) -> int_list_to_string(values)
+                    None -> "*"
+                  },
+                  by_month_day: case spec.by_month_day {
+                    Some(values) -> int_list_to_string(values)
+                    None -> "*"
+                  },
+                ),
+              )
+            False -> Ok(Nil)
+          }
       }
+  }
+}
+
+fn validate_frequency_compatibility(
+  spec: ValidRRule,
+) -> Result(Nil, ValidationError) {
+  case spec.frequency, spec.by_month_day {
+    Weekly, Some(_) ->
+      Error(IncompatibleFrequencyAndPart(
+        frequency: Weekly,
+        part: ByMonthDayPart,
+      ))
+    _, _ -> Ok(Nil)
   }
 }
 

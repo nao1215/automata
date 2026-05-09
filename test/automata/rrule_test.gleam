@@ -158,3 +158,181 @@ pub fn builder_round_trips_to_valid_rrule_test() {
     )),
   )
 }
+
+pub fn next_after_preserves_anchor_seconds_test() {
+  let spec = parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
+  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 30)
+
+  rrule.next_after(
+    spec,
+    anchor: anchor,
+    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 0),
+  )
+  |> should.equal(Ok(Some(schedule_ast.datetime(2026, 5, 1, 9, 0, 30))))
+
+  rrule.next_after(
+    spec,
+    anchor: anchor,
+    after: schedule_ast.datetime(2026, 5, 1, 9, 0, 30),
+  )
+  |> should.equal(Ok(Some(schedule_ast.datetime(2026, 5, 2, 9, 0, 30))))
+}
+
+pub fn iterator_after_preserves_anchor_seconds_test() {
+  let spec = parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")
+  let anchor = schedule_ast.datetime(2026, 5, 1, 9, 0, 30)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Exclusive(schedule_ast.datetime(
+        2026,
+        5,
+        1,
+        9,
+        0,
+        0,
+      )),
+    )
+
+  let assert rule_iterator.Yield(first_at, second_iterator) =
+    rule_iterator.step(iterator)
+  first_at |> should.equal(schedule_ast.datetime(2026, 5, 1, 9, 0, 30))
+
+  let assert rule_iterator.Yield(second_at, _) =
+    rule_iterator.step(second_iterator)
+  second_at |> should.equal(schedule_ast.datetime(2026, 5, 2, 9, 0, 30))
+}
+
+pub fn yearly_numeric_byday_uses_year_scope_when_no_bymonth_test() {
+  let spec = parse_and_validate("FREQ=YEARLY;BYDAY=1MO;BYHOUR=9;BYMINUTE=0")
+  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 0, 0)
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2026, 1, 5, 9, 0, 0),
+  )
+  |> should.equal(Ok(True))
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2027, 1, 4, 9, 0, 0),
+  )
+  |> should.equal(Ok(True))
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2026, 2, 2, 9, 0, 0),
+  )
+  |> should.equal(Ok(False))
+}
+
+pub fn yearly_numeric_byday_with_bymonth_uses_month_scope_test() {
+  let spec =
+    parse_and_validate("FREQ=YEARLY;BYMONTH=3;BYDAY=1MO;BYHOUR=9;BYMINUTE=0")
+  let anchor = schedule_ast.datetime(2026, 3, 2, 9, 0, 0)
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2026, 3, 2, 9, 0, 0),
+  )
+  |> should.equal(Ok(True))
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2027, 3, 1, 9, 0, 0),
+  )
+  |> should.equal(Ok(True))
+
+  rrule.matches(
+    spec,
+    anchor: anchor,
+    at: schedule_ast.datetime(2026, 1, 5, 9, 0, 0),
+  )
+  |> should.equal(Ok(False))
+}
+
+pub fn validate_rejects_weekly_with_by_month_day_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;BYMONTHDAY=1")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.IncompatibleFrequencyAndPart(
+      frequency: rule_validator.Weekly,
+      part: rule_validator.ByMonthDayPart,
+    )),
+  )
+}
+
+pub fn builder_rejects_empty_by_day_test() {
+  rrule.builder(rule_validator.Weekly)
+  |> rrule.with_by_day([])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidList(part: rule_validator.ByDayPart, value: "")),
+  )
+}
+
+pub fn builder_rejects_zero_ordinal_weekday_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_day([rrule.nth_weekday(ordinal: 0, day: schedule_ast.Monday)])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByDayPart,
+      value: "0MO",
+    )),
+  )
+}
+
+pub fn try_datetime_validates_components_test() {
+  schedule_ast.try_datetime(
+    year: 2026,
+    month: 2,
+    day: 30,
+    hour: 0,
+    minute: 0,
+    second: 0,
+  )
+  |> should.equal(Error(schedule_ast.InvalidDate(2026, 2, 30)))
+
+  schedule_ast.try_datetime(
+    year: 2026,
+    month: 5,
+    day: 9,
+    hour: 25,
+    minute: 0,
+    second: 0,
+  )
+  |> should.equal(Error(schedule_ast.InvalidTime(25, 0, 0)))
+
+  schedule_ast.try_datetime(
+    year: 2024,
+    month: 2,
+    day: 29,
+    hour: 23,
+    minute: 59,
+    second: 59,
+  )
+  |> should.equal(Ok(schedule_ast.datetime(2024, 2, 29, 23, 59, 59)))
+}
+
+pub fn valid_datetime_round_trips_value_test() {
+  let assert Ok(valid) =
+    schedule_ast.try_valid_datetime(
+      year: 2026,
+      month: 5,
+      day: 9,
+      hour: 12,
+      minute: 0,
+      second: 0,
+    )
+
+  schedule_ast.valid_datetime_value(valid)
+  |> should.equal(schedule_ast.datetime(2026, 5, 9, 12, 0, 0))
+}

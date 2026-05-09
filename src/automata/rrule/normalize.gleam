@@ -73,7 +73,11 @@ fn default_by_month(
     Some(values) -> Some(values)
     None ->
       case spec.frequency {
-        validator.Yearly -> Some([anchor.date.month])
+        validator.Yearly ->
+          case spec.by_day, spec.by_month_day {
+            None, None -> Some([anchor.date.month])
+            _, _ -> None
+          }
         _ -> None
       }
   }

@@ -56,7 +56,7 @@ pub fn day_matches(plan: RRulePlan, date: Date) -> Bool {
     Some(values) -> list.any(values, fn(item) { item == date.month })
   }
   let month_day_match = month_day_matches(plan.by_month_day, date)
-  let weekday_match = weekday_matches(plan.by_day, datetime)
+  let weekday_match = weekday_matches(plan, plan.by_day, datetime)
 
   month_match
   && case plan.by_month_day, plan.by_day {
@@ -118,7 +118,7 @@ fn occurrence_index(
             plan,
             target,
             count + 1,
-            calendar.add_minutes(found, 1),
+            calendar.add_seconds(found, 1),
           )
         Eq -> count + 1
         Gt -> count
@@ -130,7 +130,7 @@ pub fn yielded_before(plan plan: RRulePlan, cursor cursor: DateTime) -> Int {
   case calendar.less_than(cursor, plan.anchor) {
     True -> 0
     False ->
-      occurrence_index(plan, calendar.add_minutes(cursor, -1), 0, plan.anchor)
+      occurrence_index(plan, calendar.add_seconds(cursor, -1), 0, plan.anchor)
   }
 }
 
@@ -193,6 +193,7 @@ fn month_day_matches(values: Option(List(Int)), date: Date) -> Bool {
 }
 
 fn weekday_matches(
+  plan: RRulePlan,
   values: Option(List(validator.WeekdaySpecifier)),
   at: DateTime,
 ) -> Bool {
@@ -201,13 +202,14 @@ fn weekday_matches(
     Some(items) -> {
       let actual = calendar.weekday(at)
       list.any(items, fn(item) {
-        weekday_specifier_matches(item, actual, at.date)
+        weekday_specifier_matches(plan, item, actual, at.date)
       })
     }
   }
 }
 
 fn weekday_specifier_matches(
+  plan: RRulePlan,
   specifier: validator.WeekdaySpecifier,
   actual: Weekday,
   date: Date,
@@ -215,25 +217,48 @@ fn weekday_specifier_matches(
   case specifier {
     validator.EveryWeekday(expected) -> expected == actual
     validator.NthWeekday(ordinal, expected) ->
-      expected == actual && nth_weekday_matches(ordinal, expected, date)
+      expected == actual && nth_weekday_matches(plan, ordinal, expected, date)
   }
 }
 
-fn nth_weekday_matches(ordinal: Int, weekday: Weekday, date: Date) -> Bool {
-  let occurrences =
-    weekday_occurrences_in_month(weekday, date.year, date.month, 1, [])
+fn nth_weekday_matches(
+  plan: RRulePlan,
+  ordinal: Int,
+  weekday: Weekday,
+  date: Date,
+) -> Bool {
+  let occurrences = case nth_scope(plan) {
+    YearScope -> weekday_occurrences_in_year(weekday, date.year)
+    MonthScope -> weekday_occurrences_in_month(weekday, date.year, date.month)
+  }
 
   case ordinal > 0 {
     True ->
       case list.drop(occurrences, ordinal - 1) {
-        [day, ..] -> day == date.day
+        [match, ..] -> match.month == date.month && match.day == date.day
         [] -> False
       }
     False ->
       case list.drop(list.reverse(occurrences), { 0 - ordinal } - 1) {
-        [day, ..] -> day == date.day
+        [match, ..] -> match.month == date.month && match.day == date.day
         [] -> False
       }
+  }
+}
+
+type NthScope {
+  MonthScope
+  YearScope
+}
+
+type Occurrence {
+  Occurrence(month: Int, day: Int)
+}
+
+fn nth_scope(plan: RRulePlan) -> NthScope {
+  case plan.frequency, plan.by_month {
+    validator.Yearly, None -> YearScope
+    _, _ -> MonthScope
   }
 }
 
@@ -241,9 +266,17 @@ fn weekday_occurrences_in_month(
   weekday: Weekday,
   year: Int,
   month: Int,
+) -> List(Occurrence) {
+  weekday_occurrences_in_month_loop(weekday, year, month, 1, [])
+}
+
+fn weekday_occurrences_in_month_loop(
+  weekday: Weekday,
+  year: Int,
+  month: Int,
   day: Int,
-  acc: List(Int),
-) -> List(Int) {
+  acc: List(Occurrence),
+) -> List(Occurrence) {
   let maximum = calendar.days_in_month(year, month)
 
   case day > maximum {
@@ -256,13 +289,37 @@ fn weekday_occurrences_in_month(
         )
       case calendar.weekday(datetime) == weekday {
         True ->
-          weekday_occurrences_in_month(weekday, year, month, day + 1, [
-            day,
+          weekday_occurrences_in_month_loop(weekday, year, month, day + 1, [
+            Occurrence(month:, day:),
             ..acc
           ])
         False ->
-          weekday_occurrences_in_month(weekday, year, month, day + 1, acc)
+          weekday_occurrences_in_month_loop(weekday, year, month, day + 1, acc)
       }
+    }
+  }
+}
+
+fn weekday_occurrences_in_year(weekday: Weekday, year: Int) -> List(Occurrence) {
+  weekday_occurrences_in_year_loop(weekday, year, 1, [])
+}
+
+fn weekday_occurrences_in_year_loop(
+  weekday: Weekday,
+  year: Int,
+  month: Int,
+  acc: List(Occurrence),
+) -> List(Occurrence) {
+  case month > 12 {
+    True -> list.reverse(acc)
+    False -> {
+      let month_occurrences = weekday_occurrences_in_month(weekday, year, month)
+      weekday_occurrences_in_year_loop(
+        weekday,
+        year,
+        month + 1,
+        list.fold(month_occurrences, acc, fn(carry, item) { [item, ..carry] }),
+      )
     }
   }
 }
