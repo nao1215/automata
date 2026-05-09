@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `automata/event/builtin/body.scheduled_event/4` — smart constructor
+  for `Scheduled` events that derives `source_id` from `plan_id` and
+  reuses a single `at` for both `occurred_at` and `fired_at`. Existing
+  `body.new/4` is retained verbatim for the rare case where the two
+  values genuinely differ. (#6)
+
 ### Documentation
 
 - README's "Retry" section now records the `multiplier >= 2` minimum on
