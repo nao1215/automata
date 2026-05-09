@@ -5,6 +5,7 @@ import automata/event/filter
 import automata/event/source
 import automata/schedule/ast as schedule_ast
 import gleam/dict
+import gleam/option
 import gleeunit/should
 
 fn at(year: Int, month: Int, day: Int) {
@@ -179,4 +180,127 @@ pub fn builtin_custom_kind_filter_test() {
   |> should.equal(True)
   filter.matches(builtin_filter.by_custom_kind(kind: "github.pr_opened"), ev)
   |> should.equal(False)
+}
+
+pub fn predicate_lifts_arbitrary_check_test() {
+  let a = scheduled_event("alpha", "p")
+  let b = scheduled_event("beta", "p")
+
+  let f = filter.predicate(check: fn(event) { event.id == "alpha" })
+
+  filter.matches(f, a) |> should.equal(True)
+  filter.matches(f, b) |> should.equal(False)
+}
+
+pub fn by_source_filters_on_full_source_test() {
+  let ev = scheduled_event("e", "plan-1")
+
+  filter.matches(filter.by_source(source: source.schedule(id: "plan-1")), ev)
+  |> should.equal(True)
+  filter.matches(filter.by_source(source: source.schedule(id: "plan-2")), ev)
+  |> should.equal(False)
+  filter.matches(filter.by_source(source: source.file_system(id: "plan-1")), ev)
+  |> should.equal(False)
+}
+
+pub fn by_source_id_filters_on_id_only_test() {
+  let ev = scheduled_event("e", "plan-1")
+
+  filter.matches(filter.by_source_id(id: "plan-1"), ev) |> should.equal(True)
+  filter.matches(filter.by_source_id(id: "plan-2"), ev) |> should.equal(False)
+}
+
+pub fn by_causation_id_filters_test() {
+  let ev = scheduled_event("e", "p") |> event.with_causation_id("cause-1")
+
+  filter.matches(filter.by_causation_id(id: "cause-1"), ev)
+  |> should.equal(True)
+  filter.matches(filter.by_causation_id(id: "cause-2"), ev)
+  |> should.equal(False)
+
+  // No causation id at all → must reject.
+  filter.matches(
+    filter.by_causation_id(id: "cause-1"),
+    scheduled_event("e", "p"),
+  )
+  |> should.equal(False)
+}
+
+pub fn by_trace_id_filters_test() {
+  let ev = scheduled_event("e", "p") |> event.with_trace_id("trace-1")
+
+  filter.matches(filter.by_trace_id(id: "trace-1"), ev) |> should.equal(True)
+  filter.matches(filter.by_trace_id(id: "trace-2"), ev) |> should.equal(False)
+
+  filter.matches(filter.by_trace_id(id: "trace-1"), scheduled_event("e", "p"))
+  |> should.equal(False)
+}
+
+pub fn by_attribute_matches_present_value_test() {
+  let ev =
+    scheduled_event("e", "p")
+    |> event.with_attribute(key: "team", value: "platform")
+
+  filter.matches(filter.by_attribute(key: "team", value: "platform"), ev)
+  |> should.equal(True)
+  filter.matches(filter.by_attribute(key: "team", value: "data"), ev)
+  |> should.equal(False)
+  filter.matches(filter.by_attribute(key: "owner", value: "platform"), ev)
+  |> should.equal(False)
+}
+
+pub fn has_attribute_checks_presence_only_test() {
+  let ev =
+    scheduled_event("e", "p")
+    |> event.with_attribute(key: "team", value: "platform")
+
+  filter.matches(filter.has_attribute(key: "team"), ev) |> should.equal(True)
+  filter.matches(filter.has_attribute(key: "owner"), ev) |> should.equal(False)
+}
+
+pub fn occurred_after_is_strict_test() {
+  let ev = scheduled_event("e", "p")
+  // ev.occurred_at == 2026-05-09T09:00:00.
+
+  filter.matches(filter.occurred_after(after: at(2026, 5, 8)), ev)
+  |> should.equal(True)
+
+  // Same instant → strict comparison must reject.
+  filter.matches(filter.occurred_after(after: at(2026, 5, 9)), ev)
+  |> should.equal(False)
+
+  filter.matches(filter.occurred_after(after: at(2026, 5, 10)), ev)
+  |> should.equal(False)
+}
+
+pub fn occurred_before_is_strict_test() {
+  let ev = scheduled_event("e", "p")
+
+  filter.matches(filter.occurred_before(before: at(2026, 5, 10)), ev)
+  |> should.equal(True)
+
+  filter.matches(filter.occurred_before(before: at(2026, 5, 9)), ev)
+  |> should.equal(False)
+
+  filter.matches(filter.occurred_before(before: at(2026, 5, 8)), ev)
+  |> should.equal(False)
+}
+
+pub fn on_body_option_returns_false_when_extractor_yields_none_test() {
+  // Use a `Scheduled` event with an extractor that only returns Some
+  // for `FileModified`. This forces the None branch to fire.
+  let ev = scheduled_event("e", "p")
+
+  let f =
+    filter.on_body_option(
+      extract: fn(b) {
+        case b {
+          body.FileModified(path) -> option.Some(path)
+          _ -> option.None
+        }
+      },
+      check: fn(_) { True },
+    )
+
+  filter.matches(f, ev) |> should.equal(False)
 }
