@@ -40,7 +40,7 @@ fn vdt(
 }
 
 pub fn shared_schedule_matches_cron_test() {
-  let compiled =
+  let assert Ok(compiled) =
     schedule.from_cron(parse_and_validate_cron("*/30 9-17 * * 1-5"))
 
   schedule.matches(compiled, at: vdt(2026, 5, 11, 10, 0, 0))
@@ -179,7 +179,7 @@ pub fn from_every_crosses_month_boundary_test() {
 
 pub fn from_once_matches_only_at_target_test() {
   let target = vdt(2026, 5, 1, 12, 0, 0)
-  let compiled = schedule.from_once(at: target)
+  let assert Ok(compiled) = schedule.from_once(at: target)
 
   schedule.matches(compiled, at: target) |> should.equal(True)
   schedule.matches(compiled, at: vdt(2026, 5, 1, 12, 0, 1))
@@ -190,7 +190,7 @@ pub fn from_once_matches_only_at_target_test() {
 
 pub fn from_once_next_after_returns_target_then_none_test() {
   let target = vdt(2026, 5, 1, 12, 0, 0)
-  let compiled = schedule.from_once(at: target)
+  let assert Ok(compiled) = schedule.from_once(at: target)
 
   schedule.next_after(compiled, after: vdt(2026, 4, 30, 23, 59, 59))
   |> should.equal(Some(target))
@@ -201,7 +201,7 @@ pub fn from_once_next_after_returns_target_then_none_test() {
 
 pub fn from_once_iterator_terminates_after_one_yield_test() {
   let target = vdt(2026, 5, 1, 12, 0, 0)
-  let compiled = schedule.from_once(at: target)
+  let assert Ok(compiled) = schedule.from_once(at: target)
 
   let it =
     schedule.iterator_after(
@@ -217,10 +217,48 @@ pub fn from_once_iterator_terminates_after_one_yield_test() {
 
 pub fn from_once_iterator_done_when_boundary_excludes_target_test() {
   let target = vdt(2026, 5, 1, 12, 0, 0)
-  let compiled = schedule.from_once(at: target)
+  let assert Ok(compiled) = schedule.from_once(at: target)
 
   let it =
     schedule.iterator_after(compiled, boundary: schedule_ast.Exclusive(target))
 
   schedule.step(it) |> should.equal(schedule.Done)
+}
+
+// Issue #5: with all four constructors returning Result(Schedule, _),
+// generic helpers can treat them uniformly. This test pins down that
+// uniform shape by feeding all four through one tagged-union compiler.
+type AnySpec {
+  CronS(spec: cron_validator.ValidCron)
+  RRuleS(spec: rule_validator.ValidRRule, anchor: schedule_ast.ValidDateTime)
+  EveryS(seconds: Int, anchor: schedule_ast.ValidDateTime)
+  OnceS(at: schedule_ast.ValidDateTime)
+}
+
+fn compile(s: AnySpec) -> Result(schedule.Schedule, schedule.ScheduleError) {
+  case s {
+    CronS(spec:) -> schedule.from_cron(spec: spec)
+    RRuleS(spec:, anchor:) -> schedule.from_rrule(spec: spec, anchor: anchor)
+    EveryS(seconds:, anchor:) ->
+      schedule.from_every(interval_seconds: seconds, anchor: anchor)
+    OnceS(at:) -> schedule.from_once(at: at)
+  }
+}
+
+pub fn from_constructors_return_uniform_result_shape_test() {
+  let cron_spec = parse_and_validate_cron("0 0 * * *")
+  let rrule_spec = parse_and_validate_rrule("FREQ=DAILY;COUNT=2")
+  let anchor = vdt(2026, 5, 9, 12, 0, 0)
+
+  let assert Ok(_) = compile(CronS(spec: cron_spec))
+  let assert Ok(_) = compile(RRuleS(spec: rrule_spec, anchor: anchor))
+  let assert Ok(_) = compile(EveryS(seconds: 60, anchor: anchor))
+  let assert Ok(_) = compile(OnceS(at: anchor))
+}
+
+pub fn from_every_zero_seconds_propagates_through_compile_test() {
+  let anchor = vdt(2026, 5, 9, 12, 0, 0)
+
+  compile(EveryS(seconds: 0, anchor: anchor))
+  |> should.equal(Error(schedule.EveryIntervalMustBePositive(actual: 0)))
 }
