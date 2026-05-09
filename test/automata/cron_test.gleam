@@ -46,12 +46,103 @@ pub fn parse_splits_unix_fields_test() {
   )
 }
 
-pub fn parse_rejects_macros_test() {
+pub fn parse_accepts_yearly_nickname_test() {
+  cron.parse("@yearly")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "0",
+      day_of_month: "1",
+      month: "1",
+      day_of_week: "*",
+    )),
+  )
+}
+
+pub fn parse_accepts_annually_alias_for_yearly_test() {
+  cron.parse("@annually")
+  |> should.equal(cron.parse("@yearly"))
+}
+
+pub fn parse_accepts_monthly_nickname_test() {
+  cron.parse("@monthly")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "0",
+      day_of_month: "1",
+      month: "*",
+      day_of_week: "*",
+    )),
+  )
+}
+
+pub fn parse_accepts_weekly_nickname_test() {
+  cron.parse("@weekly")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "0",
+      day_of_month: "*",
+      month: "*",
+      day_of_week: "0",
+    )),
+  )
+}
+
+pub fn parse_accepts_daily_nickname_test() {
   cron.parse("@daily")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "0",
+      day_of_month: "*",
+      month: "*",
+      day_of_week: "*",
+    )),
+  )
+}
+
+pub fn parse_accepts_midnight_alias_for_daily_test() {
+  cron.parse("@midnight")
+  |> should.equal(cron.parse("@daily"))
+}
+
+pub fn parse_accepts_hourly_nickname_test() {
+  cron.parse("@hourly")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "*",
+      day_of_month: "*",
+      month: "*",
+      day_of_week: "*",
+    )),
+  )
+}
+
+pub fn parse_accepts_uppercase_nickname_test() {
+  // The Vixie nickname table is case-insensitive in practice
+  // (croniter, robfig/cron, node-cron, Quartz "@hourly" all accept
+  // both cases).
+  cron.parse("@HOURLY") |> should.equal(cron.parse("@hourly"))
+}
+
+pub fn parse_rejects_reboot_nickname_test() {
+  // `@reboot` is recognised but has no 5-field equivalent (it is a
+  // startup hook, not a recurring schedule). The parser surfaces it
+  // with a dedicated variant so callers can distinguish it from a
+  // typo.
+  cron.parse("@reboot")
+  |> should.equal(Error(cron_parser.RebootNotSupported(value: "@reboot")))
+}
+
+pub fn parse_rejects_unknown_nickname_test() {
+  cron.parse("@hourly_oops")
   |> should.equal(
     Error(cron_parser.UnsupportedSyntax(
       field: cron_ast.Expression,
-      value: "@daily",
+      value: "@hourly_oops",
     )),
   )
 }

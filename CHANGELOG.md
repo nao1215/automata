@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `automata/cron.parse` now accepts the Vixie cron nickname aliases
+  `@yearly` / `@annually`, `@monthly`, `@weekly`, `@daily` /
+  `@midnight`, and `@hourly`. They are matched case-insensitively
+  (matching croniter / robfig/cron / node-cron) and expand to their
+  canonical 5-field forms (`0 0 1 1 *`, `0 0 1 * *`, `0 0 * * 0`,
+  `0 0 * * *`, `0 * * * *`) before validation, so the rest of the
+  pipeline is unchanged. (#18)
+- `automata/cron/parser.ParseError` gains a `RebootNotSupported(value:)`
+  variant. `@reboot` is recognised but rejected with this dedicated
+  error rather than the generic `UnsupportedSyntax` so callers can
+  give users a precise message ("startup hook, not a schedule") and
+  point them at their host process supervisor instead. (#18)
 - Property-based and metamorphic tests using
   [metamon](https://github.com/nao1215/metamon) covering the top-level
   `Automaton` API (parity machine acceptance and the
