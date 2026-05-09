@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `automata/event/metadata` getter functions
+  (`correlation_id/1`, `causation_id/1`, `trace_id/1`, `attributes/1`)
+  to mirror the existing `with_*` setters. Callers can now read and
+  write metadata through symmetric function APIs without reaching into
+  the `Metadata` record's public fields directly. (#13)
+
+### Documentation
+
+- `automata/event.continue_from/5`: docstring and README now state
+  explicitly that the child event inherits `correlation_id`, `trace_id`,
+  **and the full `attributes` dict** from the parent (previously the
+  attribute inheritance was undocumented). Includes a pointer to
+  `event.new` + `with_metadata(metadata.empty())` for callers that want
+  a fresh attribute set on the child. (#13)
+
 ## [0.2.0] - 2026-05-09
 
 ### Changed

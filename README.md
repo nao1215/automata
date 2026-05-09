@@ -179,8 +179,17 @@ under a different `source_id`).
 `CustomSource("vendor.kind")`. `Event.occurred_at` is a
 `ValidDateTime`, which rejects impossible calendar dates such as
 2026-02-30. `event.continue_from/5` chains a child event from a
-parent, copying `correlation_id` and `trace_id` and setting
-`causation_id` automatically.
+parent, inheriting `correlation_id`, `trace_id`, and the full
+`attributes` dict, and setting `causation_id` to the parent's id.
+Use `event.new` plus `event.with_metadata(metadata.empty())` when the
+child should start with a fresh attribute set.
+
+`automata/event/metadata` exposes both `with_*` setters
+(`with_correlation_id` etc.) and matching getters
+(`correlation_id`, `causation_id`, `trace_id`, `attributes`,
+`attribute(_, key)`, `has_attribute(_, key)`) so callers can read and
+write metadata symmetrically without reaching into the `Metadata`
+record's public fields directly.
 
 ## Filesystem events
 

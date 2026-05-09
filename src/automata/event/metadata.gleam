@@ -72,3 +72,26 @@ pub fn attribute(metadata metadata: Metadata, key key: String) -> Option(String)
 pub fn has_attribute(metadata metadata: Metadata, key key: String) -> Bool {
   dict.has_key(metadata.attributes, key)
 }
+
+/// Return the configured `correlation_id`, if any.
+///
+/// Symmetric with `with_correlation_id/2` so callers can read and write
+/// without reaching into the `Metadata` record's public fields directly.
+pub fn correlation_id(metadata metadata: Metadata) -> Option(String) {
+  metadata.correlation_id
+}
+
+/// Return the configured `causation_id`, if any.
+pub fn causation_id(metadata metadata: Metadata) -> Option(String) {
+  metadata.causation_id
+}
+
+/// Return the configured `trace_id`, if any.
+pub fn trace_id(metadata metadata: Metadata) -> Option(String) {
+  metadata.trace_id
+}
+
+/// Return the full attribute map.
+pub fn attributes(metadata metadata: Metadata) -> Attributes {
+  metadata.attributes
+}

@@ -98,6 +98,63 @@ pub fn continue_from_chains_metadata_test() {
   metadata.attribute(child.metadata, "env") |> should.equal(Some("prod"))
 }
 
+pub fn continue_from_inherits_attributes_documented_test() {
+  // Issue #13: pin down that continue_from inherits the parent's
+  // metadata.attributes verbatim, mirroring the README claim.
+  let parent =
+    event.new(
+      id: "p",
+      occurred_at: fixed_now(),
+      source: source.manual(id: "ops"),
+      body: body.manual(reason: None, actor: None),
+    )
+    |> event.with_correlation_id("c")
+    |> event.with_trace_id("t")
+    |> event.with_attribute("tenant", "acme")
+    |> event.with_attribute("user_id", "alice")
+
+  let child =
+    event.continue_from(
+      parent: parent,
+      id: "child",
+      occurred_at: fixed_now(),
+      source: source.manual(id: "ops"),
+      body: body.manual(reason: Some("escalated"), actor: Some("ops")),
+    )
+
+  metadata.attribute(child.metadata, "tenant")
+  |> should.equal(Some("acme"))
+  metadata.attribute(child.metadata, "user_id")
+  |> should.equal(Some("alice"))
+  metadata.causation_id(child.metadata) |> should.equal(Some("p"))
+}
+
+pub fn metadata_getters_mirror_setters_test() {
+  // Issue #13: every with_* setter should have a matching reader.
+  let m =
+    metadata.empty()
+    |> metadata.with_correlation_id("c")
+    |> metadata.with_causation_id("ca")
+    |> metadata.with_trace_id("tr")
+    |> metadata.with_attribute("k", "v")
+
+  metadata.correlation_id(m) |> should.equal(Some("c"))
+  metadata.causation_id(m) |> should.equal(Some("ca"))
+  metadata.trace_id(m) |> should.equal(Some("tr"))
+  metadata.attribute(m, "k") |> should.equal(Some("v"))
+}
+
+pub fn metadata_attributes_getter_returns_full_dict_test() {
+  let m =
+    metadata.empty()
+    |> metadata.with_attribute("a", "1")
+    |> metadata.with_attribute("b", "2")
+  let attrs = metadata.attributes(m)
+  dict.size(attrs) |> should.equal(2)
+  dict.get(attrs, "a") |> should.equal(Ok("1"))
+  dict.get(attrs, "b") |> should.equal(Ok("2"))
+}
+
 pub fn source_kind_string_labels_test() {
   source.kind_to_string(source.ScheduleSource) |> should.equal("schedule")
   source.kind_to_string(source.FileSystemSource) |> should.equal("file_system")
