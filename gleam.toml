@@ -1,6 +1,6 @@
 name = "automata"
 version = "0.1.0"
-description = "Composable building blocks for schedules, events, retries, filesystem-event diffs, and finite automata in Gleam"
+description = "Cron, RRULE, retries, filesystem events, and finite automata for Gleam"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "automata" }
 links = [
