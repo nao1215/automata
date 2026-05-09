@@ -67,11 +67,16 @@ pub type IterStep {
 /// Build a `Schedule` from a validated cron expression.
 ///
 /// Cron schedules are infinite; iterators never return `Done` on
-/// well-formed input.
-pub fn from_cron(spec spec: cron_validator.ValidCron) -> Schedule {
-  spec
-  |> cron_normalize.normalize
-  |> CronSchedule
+/// well-formed input. The return type is `Result` so that this
+/// constructor shares one shape with `from_rrule`, `from_every`, and
+/// `from_once`, letting generic helpers treat the four uniformly. The
+/// current implementation cannot fail (a `ValidCron` cannot produce a
+/// normalisation error), so callers can `let assert Ok(_) = ...` with
+/// confidence.
+pub fn from_cron(
+  spec spec: cron_validator.ValidCron,
+) -> Result(Schedule, ScheduleError) {
+  Ok(CronSchedule(cron_normalize.normalize(spec)))
 }
 
 /// Build a `Schedule` from a validated RRULE plus an anchor.
@@ -116,8 +121,14 @@ pub fn from_every(
 }
 
 /// Build a one-shot `Schedule` that fires exactly once at `at`.
-pub fn from_once(at at: ValidDateTime) -> Schedule {
-  OnceSchedule(at: schedule_ast.valid_datetime_value(at))
+///
+/// The return type is `Result` so that this constructor shares one
+/// shape with `from_rrule`, `from_every`, and `from_cron`. The current
+/// implementation cannot fail (the `at` argument is already a
+/// `ValidDateTime`), so callers can `let assert Ok(_) = ...` with
+/// confidence.
+pub fn from_once(at at: ValidDateTime) -> Result(Schedule, ScheduleError) {
+  Ok(OnceSchedule(at: schedule_ast.valid_datetime_value(at)))
 }
 
 /// Return `True` when `at` is an occurrence of `schedule`.

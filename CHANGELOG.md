@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking**: `automata/schedule.from_cron` and `automata/schedule.from_once`
+  now return `Result(Schedule, ScheduleError)` instead of `Schedule`, so all
+  four constructors (`from_cron`, `from_rrule`, `from_every`, `from_once`)
+  share one shape. Generic helpers can compile any spec through the same
+  type without per-arm `Ok(_)` wraps. Neither constructor can actually fail
+  today (the `let assert Ok(_) = ...` pattern is the canonical idiom for
+  both), so the change is mechanical at every call site. (#5)
+
 ### Added
 
 - `automata/event/builtin/body.scheduled_event/4` — smart constructor

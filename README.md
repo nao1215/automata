@@ -120,7 +120,7 @@ import automata/schedule
 pub fn shared_api(now, after) {
   let assert Ok(raw) = cron.parse("*/30 9-17 * * 1-5")
   let assert Ok(spec) = cron.validate(raw)
-  let compiled = schedule.from_cron(spec)
+  let assert Ok(compiled) = schedule.from_cron(spec)
 
   schedule.matches(compiled, at: now)
   schedule.next_after(compiled, after: after)
@@ -129,8 +129,11 @@ pub fn shared_api(now, after) {
 
 `schedule.from_every(interval_seconds:, anchor:)` builds a
 fixed-interval schedule; `schedule.from_once(at:)` fires exactly
-once. All four constructors share the same matcher / iterator /
-next-after API.
+once. All four constructors return `Result(Schedule, ScheduleError)`
+so they share one shape, even though `from_cron` and `from_once`
+cannot fail today (`let assert Ok(_) = ...` is the canonical idiom for
+those two). Beyond construction, the four schedules share the same
+matcher / iterator / next-after API.
 
 ## Events
 
