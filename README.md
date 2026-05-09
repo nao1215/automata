@@ -3,7 +3,7 @@
 [![CI](https://github.com/nao1215/automata/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/automata/actions/workflows/ci.yml)
 [![Hex.pm](https://img.shields.io/hexpm/v/automata)](https://hex.pm/packages/automata)
 
-Finite automata helpers for Gleam.
+Finite automata and schedule helpers for Gleam.
 
 This repository is scaffolded as a cross-target Gleam library with:
 
@@ -15,7 +15,12 @@ This repository is scaffolded as a cross-target Gleam library with:
 Current modules:
 
 - `automata` - small deterministic automaton helpers
-- `automata/cron` - pure cron parser and validator
+- `automata/cron` - UNIX cron facade over parser, validator,
+  normalizer, evaluator, iterator, next, and builder modules
+- `automata/rrule` - RFC 5545 RRULE facade over parser, validator,
+  normalizer, evaluator, iterator, next, and builder modules
+- `automata/schedule` - shared abstraction over compiled cron and
+  RRULE schedules
 
 ## Requirements
 
@@ -77,47 +82,35 @@ pub fn main() {
 }
 ```
 
-## Cron parser
+## Cron
 
-`automata/cron` currently supports two dialects:
+Initial cron support is intentionally narrow:
 
-- UNIX 5-field: `minute hour day_of_month month day_of_week`
-- AWS/EventBridge-style: `minute hour day_of_month month day_of_week [year]`
+- UNIX 5-field only: `minute hour day_of_month month day_of_week`
+- no seconds field
+- no Quartz syntax
+- no Jenkins syntax
+- no embedded timezone syntax
 
-Choose the interpretation explicitly with `style:`:
-
-- `cron.UnixStyle`
-- `cron.AwsEventBridgeStyle`
-- `cron.Auto`
-
-Supported AWS-only tokens:
-
-- `?` in day-of-month / day-of-week
-- `L` in day-of-month, and `nL` in day-of-week
-- `W` in day-of-month (`1W`)
-- `#` in day-of-week (`3#2`)
-
-The parser also rejects expressions that can never match a real
-calendar date, such as `31 4 *` for UNIX-style schedules or
-`cron(0 0 ? 2 2#5 2025)` for a fixed month/year without a fifth Monday.
-
-Not supported in the current version:
-
-- seconds field
-- `@daily`-style macros
-- Jenkins `H`
-- full Quartz compatibility
-- embedded timezone syntax
+Parsing, validation, normalization, matching, iteration, and
+next-occurrence calculation are separate phases.
 
 ```gleam
 import automata/cron
+import automata/schedule/ast as schedule_ast
 import gleam/io
 
 pub fn main() {
-  cron.parse("*/5 * * * *", style: cron.UnixStyle)
+  let assert Ok(raw) = cron.parse("*/15 9-17 * * MON-FRI")
+  let assert Ok(spec) = cron.validate(raw)
+
+  cron.to_string(spec)
   |> io.debug
 
-  cron.parse("cron(0 9 ? * MON-FRI *)", style: cron.AwsEventBridgeStyle)
+  cron.next_after(
+    spec,
+    after: schedule_ast.datetime(2026, 5, 11, 9, 7, 0),
+  )
   |> io.debug
 }
 ```
@@ -126,15 +119,126 @@ Builder usage:
 
 ```gleam
 import automata/cron
+import automata/cron/validator as cron_validator
 
 pub fn business_hours() {
-  cron.builder(cron.Unix)
+  cron.builder()
   |> cron.with_minute(cron.every(15))
   |> cron.with_hour(cron.between(from: 9, to: 17))
-  |> cron.with_day_of_week(cron.DayOfWeekValues([cron.Range(1, 5)]))
+  |> cron.with_day_of_week(cron.one_of([cron_validator.Range(1, 5)]))
   |> cron.build
 }
 ```
+
+## RRULE
+
+`automata/rrule` supports RFC 5545 recurrence rule values with an
+explicitly limited initial feature set.
+
+Supported parts:
+
+- `FREQ`
+- `INTERVAL`
+- `COUNT`
+- `UNTIL`
+- `BYMINUTE`
+- `BYHOUR`
+- `BYDAY`
+- `BYMONTHDAY`
+- `BYMONTH`
+
+Supported input forms:
+
+- raw value: `FREQ=WEEKLY;BYDAY=MO,WE`
+- property line: `RRULE:FREQ=WEEKLY;BYDAY=MO,WE`
+
+Evaluation is anchor-dependent, so normalization and execution-facing
+APIs require a `DateTime` anchor similar to `DTSTART`.
+
+```gleam
+import automata/rrule
+import automata/rrule/validator as rule_validator
+import automata/schedule/ast as schedule_ast
+import gleam/io
+
+pub fn every_other_week() {
+  let anchor = schedule_ast.datetime(2026, 1, 5, 9, 30, 0)
+
+  let assert Ok(spec) =
+    rrule.builder(rule_validator.Weekly)
+    |> rrule.with_interval(2)
+    |> rrule.with_by_day([
+      rrule.weekday(day: schedule_ast.Monday),
+      rrule.weekday(day: schedule_ast.Wednesday),
+    ])
+    |> rrule.with_by_hour([9])
+    |> rrule.with_by_minute([30])
+    |> rrule.build
+
+  rrule.next_after(
+    spec,
+    anchor: anchor,
+    after: schedule_ast.datetime(2026, 1, 5, 9, 31, 0),
+  )
+  |> io.debug
+}
+```
+
+Not supported in the current version:
+
+- `BYSECOND`
+- `BYYEARDAY`
+- `BYWEEKNO`
+- `BYSETPOS`
+- `WKST`
+- `DTSTART`, `TZID`, `RDATE`, `EXDATE`, `EXRULE`
+- recurrence set algebra
+
+## Shared schedule API
+
+Cron and RRULE stay separate at the syntax layer, but share one
+compiled abstraction.
+
+```gleam
+import automata/cron
+import automata/schedule
+import automata/schedule/ast as schedule_ast
+import automata/schedule/evaluator as schedule_evaluator
+import automata/schedule/next as schedule_next
+import gleam/io
+
+pub fn shared_api() {
+  let assert Ok(raw) = cron.parse("*/30 9-17 * * 1-5")
+  let assert Ok(spec) = cron.validate(raw)
+  let compiled = schedule.from_cron(spec)
+
+  schedule_evaluator.matches(
+    compiled,
+    at: schedule_ast.datetime(2026, 5, 11, 10, 0, 0),
+  )
+  |> io.debug
+
+  schedule_next.next_after(
+    compiled,
+    after: schedule_ast.datetime(2026, 5, 11, 10, 7, 0),
+  )
+  |> io.debug
+}
+```
+
+## Module layout
+
+- `automata/cron/ast`, `parser`, `validator`, `normalize`, `evaluator`,
+  `iterator`, `next`, `builder`
+- `automata/rrule/ast`, `parser`, `validator`, `normalize`,
+  `evaluator`, `iterator`, `next`, `builder`
+- `automata/schedule`, `automata/schedule/ast`,
+  `automata/schedule/evaluator`, `automata/schedule/iterator`,
+  `automata/schedule/next`
+
+Breaking changes are acceptable in this repository and the current
+schedule APIs prefer correctness and explicit phase separation over
+backward compatibility.
 
 ## Commands
 

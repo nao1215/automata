@@ -1,6 +1,6 @@
 name = "automata"
 version = "0.1.0"
-description = "Finite automata helpers for Gleam"
+description = "Finite automata and schedule helpers for Gleam"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "automata" }
 links = [
@@ -37,3 +37,24 @@ prefer_guard_clause = "off"
   "thrown_away_error",
   "unused_exports",
 ]
+"src/automata/cron/builder.gleam" = ["deep_nesting"]
+"src/automata/cron/iterator.gleam" = ["deep_nesting"]
+"src/automata/cron/parser.gleam" = ["deep_nesting"]
+"src/automata/cron/validator.gleam" = ["deep_nesting", "thrown_away_error"]
+"src/automata/internal/calendar.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/rrule.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/rrule/evaluator.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/rrule/validator.gleam" = ["deep_nesting"]
+"src/automata/schedule/ast.gleam" = ["unused_exports"]

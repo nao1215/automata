@@ -9,20 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `automata/cron`: pure cron parser/validator with support for UNIX
-  5-field expressions and AWS/EventBridge-style expressions, including
-  `?`, `L`, `W`, and `#` in the supported day fields.
-- `automata/cron`: immutable builder API for constructing cron
-  expressions without parsing strings.
+- `automata/cron/{ast,parser,validator,normalize,evaluator,iterator,next,builder}`
+  as a composable UNIX 5-field cron stack.
+- `automata/rrule/{ast,parser,validator,normalize,evaluator,iterator,next,builder}`
+  as a composable RFC 5545 RRULE stack for the initial supported subset.
+- `automata/schedule` plus `automata/schedule/{ast,evaluator,iterator,next}`
+  as a shared abstraction over compiled cron and RRULE schedules.
+- Matching and next-occurrence calculation for both cron and RRULE.
+- Iterator-based occurrence generation for both cron and RRULE.
+- Anchor-aware RRULE normalization with typed builder APIs.
 
 ### Changed
 
-- `automata/cron`: reject cron expressions that can never match a real
-  calendar date, including fixed non-leap-year `2/29`, impossible
-  month-end combinations, and impossible `#5` weekday occurrences.
-- Expanded cron coverage with roughly 100 meaningful parser and builder
-  test patterns across UNIX, AWS/EventBridge, syntax/range errors, and
-  calendar edge cases.
+- `automata/cron` is now a breaking, UNIX-only API with explicit phase
+  separation between parse, validate, normalize, evaluate, iterate, and
+  next-occurrence logic.
+- `automata/rrule` is now a breaking, subset-focused API with explicit
+  parsing, validation, normalization, matching, iteration, and
+  next-occurrence boundaries.
+- Project metadata and README now describe `automata` as a schedule
+  library in addition to the original finite automata helper.
+
+### Removed
+
+- AWS/EventBridge cron support from the public `automata/cron` facade.
+- Quartz- and Jenkins-style cron syntax from the supported surface.
+- Unsupported RRULE parts from the public contract, including
+  `BYSECOND`, `BYYEARDAY`, `BYWEEKNO`, `BYSETPOS`, and `WKST`.
 
 ## [0.1.0] - 2026-05-08
 
