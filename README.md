@@ -280,8 +280,6 @@ compiled abstraction.
 import automata/cron
 import automata/schedule
 import automata/schedule/ast as schedule_ast
-import automata/schedule/evaluator as schedule_evaluator
-import automata/schedule/next as schedule_next
 import gleam/io
 
 pub fn shared_api() {
@@ -308,13 +306,22 @@ pub fn shared_api() {
       second: 0,
     )
 
-  schedule_evaluator.matches(compiled, at: at)
+  schedule.matches(compiled, at: at)
   |> io.debug
 
-  schedule_next.next_after(compiled, after: after)
+  schedule.next_after(compiled, after: after)
   |> io.debug
 }
 ```
+
+`schedule` also offers two more constructors that share the same
+matching/iterator/next-after API:
+
+- `schedule.from_every(interval_seconds:, anchor:)` for fixed-interval
+  schedules (returns `Error(EveryIntervalMustBePositive(...))` when the
+  interval is non-positive).
+- `schedule.from_once(at:)` for a one-shot schedule that fires exactly
+  once at `at`.
 
 ## Events
 
@@ -400,9 +407,7 @@ accept `ValidDateTime`.
   `iterator`, `next`, `builder`
 - `automata/rrule/ast`, `parser`, `validator`, `normalize`,
   `evaluator`, `iterator`, `next`, `builder`
-- `automata/schedule`, `automata/schedule/ast`,
-  `automata/schedule/evaluator`, `automata/schedule/iterator`,
-  `automata/schedule/next`
+- `automata/schedule`, `automata/schedule/ast`
 - `automata/event`, `automata/event/source`,
   `automata/event/metadata`, `automata/event/filter`,
   `automata/event/match`, `automata/event/builtin/body`,
