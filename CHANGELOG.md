@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Windows drive-letter paths (`C:\foo` / `c:/foo`), matching the
   documented behaviour. Previously only paths starting with `/` were
   treated as absolute.
+- `automata/internal/calendar.add_seconds/2` now advances in one
+  arithmetic step instead of looping one second at a time. A 1-day
+  (86,400 s) or 1-week (604,800 s) `schedule.from_every` interval
+  used to walk that many recursions per yielded occurrence; the new
+  implementation decomposes the offset into days plus a
+  remainder-of-day and calls `add_days` once.
 
 ### Changed
 

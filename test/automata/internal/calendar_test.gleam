@@ -76,6 +76,31 @@ pub fn add_seconds_zero_is_identity_test() {
   calendar.add_seconds(value, 0) |> should.equal(value)
 }
 
+pub fn add_seconds_handles_one_day_jump_test() {
+  // 86_400 seconds advances exactly one day, regardless of time-of-day.
+  calendar.add_seconds(schedule_ast.datetime(2026, 5, 9, 9, 30, 0), 86_400)
+  |> should.equal(schedule_ast.datetime(2026, 5, 10, 9, 30, 0))
+
+  calendar.add_seconds(schedule_ast.datetime(2026, 5, 9, 23, 59, 59), 86_400)
+  |> should.equal(schedule_ast.datetime(2026, 5, 10, 23, 59, 59))
+}
+
+pub fn add_seconds_handles_one_week_jump_test() {
+  calendar.add_seconds(schedule_ast.datetime(2026, 5, 1, 0, 0, 0), 604_800)
+  |> should.equal(schedule_ast.datetime(2026, 5, 8, 0, 0, 0))
+}
+
+pub fn add_seconds_handles_negative_one_day_jump_test() {
+  calendar.add_seconds(schedule_ast.datetime(2026, 5, 10, 9, 30, 0), -86_400)
+  |> should.equal(schedule_ast.datetime(2026, 5, 9, 9, 30, 0))
+}
+
+pub fn add_seconds_handles_arbitrary_offset_test() {
+  // 86_400 + 3661 = one day, one hour, one minute, one second.
+  calendar.add_seconds(schedule_ast.datetime(2026, 5, 9, 0, 0, 0), 90_061)
+  |> should.equal(schedule_ast.datetime(2026, 5, 10, 1, 1, 1))
+}
+
 pub fn weekday_first_monday_of_january_test() {
   calendar.weekday(schedule_ast.datetime(2026, 1, 5, 0, 0, 0))
   |> should.equal(schedule_ast.Monday)

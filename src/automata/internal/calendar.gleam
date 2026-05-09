@@ -218,13 +218,28 @@ pub fn add_minutes(datetime: DateTime, minutes: Int) -> DateTime {
 }
 
 pub fn add_seconds(datetime: DateTime, seconds: Int) -> DateTime {
-  case seconds == 0 {
-    True -> datetime
-    False ->
-      case seconds > 0 {
-        True -> add_positive_seconds(datetime, seconds)
-        False -> add_negative_seconds(datetime, 0 - seconds)
-      }
+  case seconds {
+    0 -> datetime
+    _ -> {
+      let seconds_in_day = 86_400
+      let current_in_day =
+        datetime.time.hour
+        * 3600
+        + datetime.time.minute
+        * 60
+        + datetime.time.second
+      let total = current_in_day + seconds
+      let in_day = modulo(total, seconds_in_day)
+      let day_offset = quotient(total - in_day, seconds_in_day)
+      let hour = quotient(in_day, 3600)
+      let after_hour = in_day - hour * 3600
+      let minute = quotient(after_hour, 60)
+      let second = after_hour - minute * 60
+      add_days(
+        DateTime(date: datetime.date, time: Time(hour:, minute:, second:)),
+        day_offset,
+      )
+    }
   }
 }
 
@@ -376,72 +391,6 @@ fn add_negative_minutes(datetime: DateTime, minutes: Int) -> DateTime {
   case minutes {
     0 -> datetime
     _ -> add_negative_minutes(subtract_one_minute(datetime), minutes - 1)
-  }
-}
-
-fn add_positive_seconds(datetime: DateTime, seconds: Int) -> DateTime {
-  case seconds {
-    0 -> datetime
-    _ -> add_positive_seconds(add_one_second(datetime), seconds - 1)
-  }
-}
-
-fn add_negative_seconds(datetime: DateTime, seconds: Int) -> DateTime {
-  case seconds {
-    0 -> datetime
-    _ -> add_negative_seconds(subtract_one_second(datetime), seconds - 1)
-  }
-}
-
-fn add_one_second(datetime: DateTime) -> DateTime {
-  case datetime.time.second < 59 {
-    True ->
-      DateTime(
-        date: datetime.date,
-        time: Time(
-          hour: datetime.time.hour,
-          minute: datetime.time.minute,
-          second: datetime.time.second + 1,
-        ),
-      )
-    False ->
-      add_one_minute(DateTime(
-        date: datetime.date,
-        time: Time(
-          hour: datetime.time.hour,
-          minute: datetime.time.minute,
-          second: 0,
-        ),
-      ))
-  }
-}
-
-fn subtract_one_second(datetime: DateTime) -> DateTime {
-  case datetime.time.second > 0 {
-    True ->
-      DateTime(
-        date: datetime.date,
-        time: Time(
-          hour: datetime.time.hour,
-          minute: datetime.time.minute,
-          second: datetime.time.second - 1,
-        ),
-      )
-    False -> {
-      let prev =
-        subtract_one_minute(DateTime(
-          date: datetime.date,
-          time: Time(
-            hour: datetime.time.hour,
-            minute: datetime.time.minute,
-            second: 0,
-          ),
-        ))
-      DateTime(
-        date: prev.date,
-        time: Time(hour: prev.time.hour, minute: prev.time.minute, second: 59),
-      )
-    }
   }
 }
 

@@ -126,6 +126,57 @@ pub fn from_every_iterator_yields_in_order_test() {
   third_at |> should.equal(vdt(2026, 5, 1, 0, 2, 0))
 }
 
+pub fn from_every_advances_one_day_at_a_time_test() {
+  let assert Ok(compiled) =
+    schedule.from_every(
+      interval_seconds: 86_400,
+      anchor: vdt(2026, 5, 1, 9, 30, 0),
+    )
+
+  let it =
+    schedule.iterator_after(
+      compiled,
+      boundary: schedule_ast.Inclusive(vdt(2026, 5, 1, 9, 30, 0)),
+    )
+
+  let assert schedule.Yield(d1, it1) = schedule.step(it)
+  d1 |> should.equal(vdt(2026, 5, 1, 9, 30, 0))
+
+  let assert schedule.Yield(d2, it2) = schedule.step(it1)
+  d2 |> should.equal(vdt(2026, 5, 2, 9, 30, 0))
+
+  let assert schedule.Yield(d3, _) = schedule.step(it2)
+  d3 |> should.equal(vdt(2026, 5, 3, 9, 30, 0))
+}
+
+pub fn from_every_advances_one_week_at_a_time_test() {
+  let assert Ok(compiled) =
+    schedule.from_every(
+      interval_seconds: 604_800,
+      anchor: vdt(2026, 5, 1, 9, 30, 0),
+    )
+
+  schedule.next_after(compiled, after: vdt(2026, 5, 1, 9, 30, 0))
+  |> should.equal(Some(vdt(2026, 5, 8, 9, 30, 0)))
+
+  schedule.next_after(compiled, after: vdt(2026, 5, 8, 9, 30, 0))
+  |> should.equal(Some(vdt(2026, 5, 15, 9, 30, 0)))
+}
+
+pub fn from_every_crosses_month_boundary_test() {
+  let assert Ok(compiled) =
+    schedule.from_every(
+      interval_seconds: 86_400,
+      anchor: vdt(2026, 5, 30, 12, 0, 0),
+    )
+
+  schedule.next_after(compiled, after: vdt(2026, 5, 30, 12, 0, 0))
+  |> should.equal(Some(vdt(2026, 5, 31, 12, 0, 0)))
+
+  schedule.next_after(compiled, after: vdt(2026, 5, 31, 12, 0, 0))
+  |> should.equal(Some(vdt(2026, 6, 1, 12, 0, 0)))
+}
+
 pub fn from_once_matches_only_at_target_test() {
   let target = vdt(2026, 5, 1, 12, 0, 0)
   let compiled = schedule.from_once(at: target)
