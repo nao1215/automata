@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-09
+
 ### Documentation
 
 - README now has an `## Automaton` section with a runnable
