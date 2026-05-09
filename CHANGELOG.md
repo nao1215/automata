@@ -7,98 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-09
+
+Initial public release.
+
+### Added
+
+- Project scaffold with cross-target CI, release workflow, `justfile`,
+  `mise` toolchain, contribution guide, and security policy.
+- `automata` deterministic finite automaton helper.
+- `automata/cron/{ast,parser,validator,normalize,evaluator,iterator,
+  next,builder}` UNIX 5-field cron stack with explicit phase
+  separation between parsing, validation, normalisation, matching,
+  iteration, and next-occurrence calculation. Facade re-exports
+  `Item` constructors (`item_exact/1`, `item_range/2`,
+  `item_step_any/1`, `item_step_from/2`, `item_step_between/3`) so
+  callers do not have to reach into `automata/cron/validator`.
+- `automata/rrule/{ast,parser,validator,normalize,evaluator,iterator,
+  next,builder}` RFC 5545 RRULE stack covering the supported subset
+  (`FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, `BYMONTH`,
+  `BYMONTHDAY`, `BYHOUR`, `BYMINUTE`) anchored on a `ValidDateTime`.
+- `automata/schedule` plus `automata/schedule/{ast,evaluator,iterator,
+  next}` as a shared abstraction over compiled cron, RRULE,
+  fixed-interval (`from_every`), and one-shot (`from_once`)
+  schedules. One `matches` / `iterator_after` / `next_after` API
+  serves all four constructors.
+- `matches_plan/2`, `iterator_after_plan/2`, and `next_after_plan/2`
+  variants on `automata/cron` and `automata/rrule` for callers that
+  want to pay the normalisation cost once and reuse a `CronPlan` /
+  `RRulePlan`.
+- `automata/event` typed `Event(body)` values with source kinds,
+  correlation / causation / trace metadata, free-form attributes,
+  and filter / match combinators.
+- `automata/event/builtin/body.EventBody` closed sum
+  (`Scheduled`, `FileSystem(WatchEvent)`, `Manual`, `Custom`) wired
+  to canonical `SourceKind` values via `body.new/4`.
+- `automata/retry` deterministic retry-policy primitives:
+  `no_retry`, `fixed`, `exponential`, `capped_exponential` with
+  optional full / equal jitter, an opaque `Context`, and a
+  step-by-step `decide` API. Cross-target safe (BEAM and JavaScript
+  produce the same `Decision` list for any `(policy, seed,
+  failure-sequence)` triple).
+- `automata/fsevent` pure-domain port of fsnotify-style ops
+  (`Create`, `Write`, `Remove`, `Rename`, `Chmod`) derived from
+  comparing two `Snapshot` values, with optional file_id-based
+  rename detection. Submodules cover `ast`, `path`, `op`, `entry`,
+  `snapshot`, `watch`, `event`, `diff`. Facade re-exports the smart
+  constructors and accessors callers actually reach for so a typical
+  `diff/3` call no longer requires importing five submodules.
+- Cross-OS CI matrix on `ubuntu-latest`, `macos-latest`, and
+  `windows-latest` × `erlang` / `javascript` (six combinations).
+
 ### Fixed
 
-- `automata/fsevent/path`: `path_is_absolute/1` now returns `True` for
-  Windows drive-letter paths (`C:\foo` / `c:/foo`), matching the
-  documented behaviour. Previously only paths starting with `/` were
-  treated as absolute.
-- `automata/internal/calendar.add_seconds/2` now advances in one
-  arithmetic step instead of looping one second at a time. A 1-day
-  (86,400 s) or 1-week (604,800 s) `schedule.from_every` interval
-  used to walk that many recursions per yielded occurrence; the new
-  implementation decomposes the offset into days plus a
-  remainder-of-day and calls `add_days` once.
-
-### Changed
-
-- `automata/cron` facade re-exports `Item` constructors as
-  `item_exact/1`, `item_range/2`, `item_step_any/1`, `item_step_from/2`,
-  and `item_step_between/3`, so callers no longer need to import
-  `automata/cron/validator` to compose `cron.one_of/1` arguments.
-- `automata/cron` and `automata/rrule` add `matches_plan/2`,
-  `iterator_after_plan/2`, and `next_after_plan/2` (RRULE adds
-  `matches_plan/2`, `iterator_after_plan/2`, `next_after_plan/2`)
-  variants that accept an already-`normalize`d plan, so callers
-  evaluating the same spec many times can pay the normalisation cost
-  once.
-- `automata/fsevent` facade now re-exports `Entry`, `Snapshot`,
-  `Watch`, `WatchEvent`, and `NormalizedPath` types together with the
-  smart constructors and accessors most callers reach for, so a
-  typical `diff/3` usage no longer requires importing five
-  submodules.
-- README rewritten to lead with a one-line feature list and runnable
-  examples; development setup now lives entirely in
-  `CONTRIBUTING.md`.
-- Doc comments added to the cron / rrule facades, `event/source`,
-  `event/metadata`, and `event/filter` public functions previously
-  left undocumented.
-
-### Added
-
-- `automata/cron/{ast,parser,validator,normalize,evaluator,iterator,next,builder}`
-  as a composable UNIX 5-field cron stack.
-- `automata/rrule/{ast,parser,validator,normalize,evaluator,iterator,next,builder}`
-  as a composable RFC 5545 RRULE stack for the initial supported subset.
-- `automata/schedule` plus `automata/schedule/{ast,evaluator,iterator,next}`
-  as a shared abstraction over compiled cron and RRULE schedules.
-- Matching and next-occurrence calculation for both cron and RRULE.
-- Iterator-based occurrence generation for both cron and RRULE.
-- Anchor-aware RRULE normalization with typed builder APIs.
-- `automata/fsevent` module group: a pure-domain port of the Go
-  fsnotify semantics with zero I/O. Submodules cover `Op`, `EntryKind`,
-  `FseventError` (`ast`); `NormalizedPath` and path canonicalisation
-  (`path`); set-based `Op` helpers (`op`); validating `Entry` smart
-  constructors (`entry`); `Snapshot` (`snapshot`); a subscription
-  `Watch` (`watch`); a `WatchEvent` opaque carrying a path, op set, and
-  optional `renamed_from` (`event`); and a snapshot differ that
-  reproduces fsnotify's create/write/remove/rename/chmod semantics
-  including file_id-based rename detection (`diff`).
-- Cross-OS CI matrix expanded to `ubuntu-latest`, `macos-latest`, and
-  `windows-latest` × `erlang`/`javascript` (six combinations).
-
-### Changed
-
-- `automata/cron` is now a breaking, UNIX-only API with explicit phase
-  separation between parse, validate, normalize, evaluate, iterate, and
-  next-occurrence logic.
-- `automata/rrule` is now a breaking, subset-focused API with explicit
-  parsing, validation, normalization, matching, iteration, and
-  next-occurrence boundaries.
-- Project metadata and README now describe `automata` as a schedule
-  library in addition to the original finite automata helper.
-- **BREAKING**: `automata/event/builtin/body.EventBody` replaces the
-  four `FileCreated/FileModified/FileDeleted/FileRenamed` variants and
-  their per-variant smart constructors with a single
-  `FileSystem(automata/fsevent/event.WatchEvent)` variant, accessed
-  through `body.file_system(event)`. `body.kind/1` now returns
-  `"file_system:<op>"` (e.g. `"file_system:create+write"`,
-  `"file_system:rename"`) instead of the four legacy `"file_*"` strings.
-- **BREAKING**: `automata/event/builtin/{match,filter}` lose the
-  `is_file_created/modified/deleted/renamed` helpers in favour of a
-  unified `is_file_with_op(op)` that matches a `FileSystem(_)` body
-  against any `fsevent` `Op` value.
-
-### Removed
-
-- AWS/EventBridge cron support from the public `automata/cron` facade.
-- Quartz- and Jenkins-style cron syntax from the supported surface.
-- Unsupported RRULE parts from the public contract, including
-  `BYSECOND`, `BYYEARDAY`, `BYWEEKNO`, `BYSETPOS`, and `WKST`.
-
-## [0.1.0] - 2026-05-08
-
-### Added
-
-- Initial Gleam project scaffold with cross-target CI, release workflow,
-  `justfile`, `mise`, contribution guide, and security policy.
+- `automata/fsevent/path.path_is_absolute/1` returns `True` for
+  Windows drive-letter paths (`C:\foo` / `c:/foo`) as documented.
+- `automata/internal/calendar.add_seconds/2` advances in one
+  arithmetic step instead of looping per second, so daily and weekly
+  `schedule.from_every` intervals iterate without per-second
+  recursion.
