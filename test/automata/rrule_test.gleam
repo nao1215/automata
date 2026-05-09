@@ -394,3 +394,296 @@ pub fn valid_rrule_accessors_expose_components_test() {
   rule_validator.by_month(spec) |> should.equal(None)
   rule_validator.by_month_day(spec) |> should.equal(None)
 }
+
+pub fn validate_rejects_missing_freq_test() {
+  let assert Ok(raw) = rrule.parse("INTERVAL=2;BYHOUR=9")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.MissingPart(part: rule_validator.FreqPart)),
+  )
+}
+
+pub fn validate_rejects_unknown_part_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;XYZZY=1")
+
+  rrule.validate(raw)
+  |> should.equal(Error(rule_validator.UnknownPart(name: "XYZZY")))
+}
+
+pub fn validate_rejects_duplicate_part_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;COUNT=2;COUNT=3")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.DuplicatePart(part: rule_validator.CountPart)),
+  )
+}
+
+pub fn validate_rejects_duplicate_byhour_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;BYHOUR=9;BYHOUR=10")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.DuplicatePart(part: rule_validator.ByHourPart)),
+  )
+}
+
+pub fn validate_rejects_invalid_freq_value_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=BIWEEKLY")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.FreqPart,
+      value: "BIWEEKLY",
+    )),
+  )
+}
+
+pub fn validate_rejects_non_numeric_interval_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;INTERVAL=two")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidNumber(
+      part: rule_validator.IntervalPart,
+      value: "two",
+    )),
+  )
+}
+
+pub fn validate_rejects_zero_interval_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;INTERVAL=0")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.MustBePositive(
+      part: rule_validator.IntervalPart,
+      actual: 0,
+    )),
+  )
+}
+
+pub fn validate_rejects_count_zero_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;COUNT=0")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.MustBePositive(
+      part: rule_validator.CountPart,
+      actual: 0,
+    )),
+  )
+}
+
+pub fn validate_rejects_byhour_out_of_range_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;BYHOUR=24")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.OutOfRange(
+      part: rule_validator.ByHourPart,
+      min: 0,
+      max: 23,
+      actual: 24,
+    )),
+  )
+}
+
+pub fn validate_rejects_byminute_out_of_range_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;BYMINUTE=60")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.OutOfRange(
+      part: rule_validator.ByMinutePart,
+      min: 0,
+      max: 59,
+      actual: 60,
+    )),
+  )
+}
+
+pub fn validate_rejects_bymonthday_zero_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=MONTHLY;BYMONTHDAY=0")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByMonthDayPart,
+      value: "0",
+    )),
+  )
+}
+
+pub fn validate_rejects_numeric_byday_for_daily_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;BYDAY=1MO")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.NumericWeekdayRequiresMonthlyOrYearly(
+      frequency: rule_validator.Daily,
+    )),
+  )
+}
+
+pub fn validate_rejects_numeric_byday_for_weekly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;BYDAY=2WE")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.NumericWeekdayRequiresMonthlyOrYearly(
+      frequency: rule_validator.Weekly,
+    )),
+  )
+}
+
+pub fn validate_rejects_impossible_month_day_pair_test() {
+  // BYMONTH=2 + BYMONTHDAY=30 is impossible in any year.
+  let assert Ok(raw) = rrule.parse("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.ImpossibleDate(by_month: "2", by_month_day: "30")),
+  )
+}
+
+pub fn validate_rejects_until_with_wrong_length_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=2026")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.UntilPart,
+      value: "2026",
+    )),
+  )
+}
+
+pub fn validate_rejects_until_with_invalid_date_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=20260230")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.UntilPart,
+      value: "20260230",
+    )),
+  )
+}
+
+pub fn validate_rejects_until_datetime_without_z_suffix_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=20260101T120000X")
+
+  rrule.validate(raw)
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.UntilPart,
+      value: "20260101T120000X",
+    )),
+  )
+}
+
+pub fn validate_accepts_until_datetime_test() {
+  let spec = parse_and_validate("FREQ=DAILY;UNTIL=20260601T120000Z")
+
+  rule_validator.end_condition(spec)
+  |> should.equal(
+    rule_validator.Until(
+      rule_validator.UntilDateTime(schedule_ast.datetime(2026, 6, 1, 12, 0, 0)),
+    ),
+  )
+}
+
+pub fn builder_with_count_round_trips_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_count(5)
+  |> rrule.with_by_hour([9])
+  |> rrule.with_by_minute([0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate("FREQ=DAILY;COUNT=5;BYHOUR=9;BYMINUTE=0")),
+  )
+}
+
+pub fn builder_with_until_date_round_trips_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_date(schedule_ast.Date(year: 2026, month: 6, day: 1))
+  |> rrule.with_by_hour([9])
+  |> rrule.with_by_minute([0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate("FREQ=DAILY;UNTIL=20260601;BYHOUR=9;BYMINUTE=0")),
+  )
+}
+
+pub fn builder_with_until_datetime_round_trips_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_datetime(vdt(2026, 6, 1, 12, 0, 0))
+  |> rrule.with_by_hour([9])
+  |> rrule.with_by_minute([0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate(
+      "FREQ=DAILY;UNTIL=20260601T120000Z;BYHOUR=9;BYMINUTE=0",
+    )),
+  )
+}
+
+pub fn builder_with_by_month_round_trips_test() {
+  rrule.builder(rule_validator.Yearly)
+  |> rrule.with_by_month([3, 6, 9, 12])
+  |> rrule.with_by_month_day([1])
+  |> rrule.with_by_hour([0])
+  |> rrule.with_by_minute([0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate(
+      "FREQ=YEARLY;BYMONTH=3,6,9,12;BYMONTHDAY=1;BYHOUR=0;BYMINUTE=0",
+    )),
+  )
+}
+
+pub fn builder_rejects_zero_interval_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_interval(0)
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.MustBePositive(
+      part: rule_validator.IntervalPart,
+      actual: 0,
+    )),
+  )
+}
+
+pub fn builder_rejects_zero_count_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_count(0)
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.MustBePositive(
+      part: rule_validator.CountPart,
+      actual: 0,
+    )),
+  )
+}
+
+pub fn builder_rejects_empty_by_hour_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_by_hour([])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidList(part: rule_validator.ByHourPart, value: "")),
+  )
+}
+
+pub fn without_end_condition_clears_count_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_count(5)
+  |> rrule.without_end_condition
+  |> rrule.with_by_hour([9])
+  |> rrule.with_by_minute([0])
+  |> rrule.build
+  |> should.equal(Ok(parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")))
+}
