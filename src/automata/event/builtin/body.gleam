@@ -102,6 +102,45 @@ pub fn new(
   )
 }
 
+/// Build a `Scheduled` `BuiltinEvent` from a single `(id, plan_id, at,
+/// schedule_kind)` tuple.
+///
+/// Equivalent to:
+///
+/// ```gleam
+/// new(
+///   id: id,
+///   occurred_at: at,
+///   source_id: plan_id,
+///   body: scheduled(plan_id: plan_id, fired_at: at, schedule_kind: kind),
+/// )
+/// ```
+///
+/// In the common case `source_id` equals `plan_id` and `occurred_at`
+/// equals `fired_at`, so the verbose form forces the caller to type the
+/// same value twice. This smart constructor halves the surface and
+/// removes the "are these intentionally different?" cognitive load.
+/// Reach for `new/4` only when the two values genuinely differ
+/// (delayed dispatch recorded after the fact, fan-out under a
+/// different `source_id`, etc.).
+pub fn scheduled_event(
+  id id: String,
+  plan_id plan_id: String,
+  at at: ValidDateTime,
+  schedule_kind schedule_kind: ScheduleKind,
+) -> BuiltinEvent {
+  new(
+    id: id,
+    occurred_at: at,
+    source_id: plan_id,
+    body: scheduled(
+      plan_id: plan_id,
+      fired_at: at,
+      schedule_kind: schedule_kind,
+    ),
+  )
+}
+
 /// Derive the canonical `Source` for an `EventBody`. Exposed so that
 /// callers building events via `event.new` (for advanced cases like
 /// attaching a source name) can stay consistent with `body.new`.

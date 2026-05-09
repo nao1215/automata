@@ -142,15 +142,15 @@ import automata/fsevent/ast as fs_ast
 import automata/schedule/ast as schedule_ast
 
 pub fn cron_event(now) {
-  body.new(
+  // Smart constructor: in the common case `source_id == plan_id` and
+  // `occurred_at == fired_at`, so `scheduled_event` derives both from a
+  // single (id, plan_id, at) tuple. Reach for `body.new/4` only when
+  // those values genuinely differ.
+  body.scheduled_event(
     id: "evt-001",
-    occurred_at: now,
-    source_id: "daily-report",
-    body: body.scheduled(
-      plan_id: "daily-report",
-      fired_at: now,
-      schedule_kind: body.CronSchedule,
-    ),
+    plan_id: "daily-report",
+    at: now,
+    schedule_kind: body.CronSchedule,
   )
 }
 
@@ -162,6 +162,13 @@ pub fn watch_logs() {
   ])
 }
 ```
+
+`body.scheduled_event/4` is a thin wrapper over `body.new/4` for
+scheduled events, where `source_id` and `plan_id` are typically the
+same string and `occurred_at` and `fired_at` are typically the same
+instant. Use `body.new/4` directly for the rare case where the values
+genuinely differ (delayed dispatch recorded after the fact, fan-out
+under a different `source_id`).
 
 `body.new/4` derives the canonical `SourceKind` from the body, so
 `Scheduled` pairs with `ScheduleSource`, `FileSystem(_)` with
