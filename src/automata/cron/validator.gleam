@@ -168,27 +168,17 @@ fn parse_selector(
   case value {
     "*" -> Ok(Any)
     _ ->
-      case
-        string.contains(value, contain: "?")
-        || string.contains(value, contain: "L")
-        || string.contains(value, contain: "W")
-        || string.contains(value, contain: "#")
-        || string.contains(value, contain: "H")
-      {
-        True -> Error(UnsupportedSyntax(field: field, value: value))
+      case list.any(string.split(value, on: ","), string.is_empty) {
+        True -> Error(InvalidList(field: field, value: value))
         False ->
-          case list.any(string.split(value, on: ","), string.is_empty) {
-            True -> Error(InvalidList(field: field, value: value))
-            False ->
-              parse_items(
-                string.split(value, on: ","),
-                field,
-                min,
-                max,
-                aliases,
-                [],
-              )
-          }
+          parse_items(
+            string.split(value, on: ","),
+            field,
+            min,
+            max,
+            aliases,
+            [],
+          )
       }
   }
 }
@@ -345,12 +335,29 @@ fn parse_value(
       case parse_alias(field, value, aliases) {
         Ok(number) -> ensure_range(field, number, min, max)
         Error(Nil) ->
-          case aliases {
-            NoAliases -> Error(InvalidNumber(field: field, value: value))
-            _ -> Error(InvalidAlias(field: field, value: value))
+          case has_reserved_quartz_syntax(value) {
+            True -> Error(UnsupportedSyntax(field: field, value: value))
+            False ->
+              case aliases {
+                NoAliases -> Error(InvalidNumber(field: field, value: value))
+                _ -> Error(InvalidAlias(field: field, value: value))
+              }
           }
       }
   }
+}
+
+/// Detect reserved Quartz-style extensions (`?`, `L`, `W`, `H`, `#`) that
+/// the validator does not support. Run only after `int.parse` and
+/// `parse_alias` have both failed, so that perfectly valid alias tokens
+/// like `WED`, `JUL`, `THU` (which contain `W`, `L`, `H` as substrings)
+/// still reach the alias resolver before being misclassified.
+fn has_reserved_quartz_syntax(value: String) -> Bool {
+  string.contains(value, contain: "?")
+  || string.contains(value, contain: "L")
+  || string.contains(value, contain: "W")
+  || string.contains(value, contain: "#")
+  || string.contains(value, contain: "H")
 }
 
 fn ensure_range(

@@ -238,6 +238,50 @@ pub fn validate_rejects_unsupported_syntax_test() {
   )
 }
 
+pub fn validate_accepts_uppercase_day_of_week_comma_aliases_test() {
+  // Regression for case-folding bug where the early reserved-Quartz-char
+  // check rejected any input containing `L`, `W`, `H` as a substring,
+  // including legitimate alias tokens like `WED`. Only the uppercase
+  // comma path was affected because lowercase aliases use `w`, `l`, `h`
+  // and dash-ranges did not include WED in the dropped substrings.
+  let spec = parse_and_validate("0 0 * * MON,WED,FRI")
+
+  cron_validator.day_of_week(spec)
+  |> should.equal(
+    cron_validator.Values([
+      cron_validator.Exact(1),
+      cron_validator.Exact(3),
+      cron_validator.Exact(5),
+    ]),
+  )
+}
+
+pub fn validate_accepts_uppercase_month_comma_aliases_test() {
+  // Same bug as above, surfaced via the `L` in `JUL`.
+  let spec = parse_and_validate("0 0 1 JAN,JUL *")
+
+  cron_validator.month(spec)
+  |> should.equal(
+    cron_validator.Values([cron_validator.Exact(1), cron_validator.Exact(7)]),
+  )
+}
+
+pub fn validate_unsupported_syntax_reported_per_token_test() {
+  // After moving the reserved-syntax check past the comma split, a
+  // multi-token field with one Quartz-extension token reports the
+  // offending token, not the whole field. `15W` is Quartz "nearest
+  // weekday to the 15th" — unsupported here.
+  let assert Ok(raw) = cron.parse("0 0 15W,20 * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.UnsupportedSyntax(
+      field: cron_ast.DayOfMonth,
+      value: "15W",
+    )),
+  )
+}
+
 pub fn validate_rejects_zero_step_test() {
   let assert Ok(raw) = cron.parse("*/0 * * * *")
 
