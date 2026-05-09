@@ -125,7 +125,7 @@ pub fn builder_round_trips_to_valid_cron_test() {
   cron.builder()
   |> cron.with_minute(cron.every(15))
   |> cron.with_hour(cron.between(from: 9, to: 17))
-  |> cron.with_day_of_week(cron.one_of([cron_validator.Range(1, 5)]))
+  |> cron.with_day_of_week(cron.one_of([cron.item_range(from: 1, to: 5)]))
   |> cron.build
   |> should.equal(Ok(parse_and_validate("*/15 9-17 * * 1-5")))
 }

@@ -1,3 +1,10 @@
+//// UNIX 5-field cron stack: parse a cron string, validate it,
+//// normalise it into a fast-evaluation `CronPlan`, and ask whether a
+//// given `ValidDateTime` matches or what the next match is. This
+//// module is the user-facing facade; the typed phases live in the
+//// `automata/cron/{ast,parser,validator,normalize,evaluator,iterator,
+//// next,builder}` submodules.
+
 import automata/cron/ast as cron_ast
 import automata/cron/builder as cron_builder
 import automata/cron/evaluator as cron_evaluator
@@ -9,20 +16,31 @@ import automata/cron/validator
 import automata/schedule/ast.{type Boundary, type ValidDateTime} as schedule_ast
 import gleam/option.{type Option}
 
+/// Parse a UNIX 5-field cron expression (`minute hour day-of-month
+/// month day-of-week`) into a `RawCron` AST. Returns a `ParseError`
+/// for syntactic problems such as wrong field count or empty fields.
+/// Range and alias validation is done separately by `validate/1`.
 pub fn parse(input input: String) -> Result(cron_ast.RawCron, parser.ParseError) {
   parser.parse(input: input)
 }
 
+/// Validate a `RawCron` and return a `ValidCron` (opaque) when every
+/// field is in range and consistent. The returned value is the only
+/// shape the rest of the pipeline accepts.
 pub fn validate(
   raw raw: cron_ast.RawCron,
 ) -> Result(validator.ValidCron, validator.ValidationError) {
   validator.validate(raw)
 }
 
+/// Pre-compute the lookup tables `evaluator`/`iterator`/`next` need.
+/// Reuse the resulting `CronPlan` across calls if you evaluate the
+/// same spec many times — see the `*_plan` variants.
 pub fn normalize(spec spec: validator.ValidCron) -> cron_normalize.CronPlan {
   cron_normalize.normalize(spec)
 }
 
+/// Render a `ValidCron` back to its canonical 5-field string form.
 pub fn to_string(spec spec: validator.ValidCron) -> String {
   validator.to_string(spec)
 }
@@ -30,7 +48,7 @@ pub fn to_string(spec spec: validator.ValidCron) -> String {
 pub fn matches(spec spec: validator.ValidCron, at at: ValidDateTime) -> Bool {
   spec
   |> cron_normalize.normalize
-  |> cron_evaluator.matches(at: schedule_ast.valid_datetime_value(at))
+  |> matches_plan(at: at)
 }
 
 pub fn iterator_after(
@@ -39,7 +57,7 @@ pub fn iterator_after(
 ) -> cron_iterator.CronIterator {
   spec
   |> cron_normalize.normalize
-  |> cron_iterator.after(boundary: boundary)
+  |> iterator_after_plan(boundary: boundary)
 }
 
 pub fn next_after(
@@ -48,7 +66,33 @@ pub fn next_after(
 ) -> Option(ValidDateTime) {
   spec
   |> cron_normalize.normalize
-  |> cron_next.next_after(after: schedule_ast.valid_datetime_value(after))
+  |> next_after_plan(after: after)
+}
+
+/// Same as `matches/2` but takes an already-`normalize`d `CronPlan`,
+/// so callers that evaluate the same spec many times can pay the
+/// normalisation cost once.
+pub fn matches_plan(
+  plan plan: cron_normalize.CronPlan,
+  at at: ValidDateTime,
+) -> Bool {
+  cron_evaluator.matches(plan, at: schedule_ast.valid_datetime_value(at))
+}
+
+/// Plan-reuse counterpart to `iterator_after/2`.
+pub fn iterator_after_plan(
+  plan plan: cron_normalize.CronPlan,
+  boundary boundary: Boundary,
+) -> cron_iterator.CronIterator {
+  cron_iterator.after(plan, boundary: boundary)
+}
+
+/// Plan-reuse counterpart to `next_after/2`.
+pub fn next_after_plan(
+  plan plan: cron_normalize.CronPlan,
+  after after: ValidDateTime,
+) -> Option(ValidDateTime) {
+  cron_next.next_after(plan, after: schedule_ast.valid_datetime_value(after))
   |> option.map(schedule_ast.unsafe_assume_valid)
 }
 
@@ -86,6 +130,36 @@ pub fn every_between(
 
 pub fn one_of(items items: List(validator.Item)) -> validator.Selector {
   cron_builder.one_of(items: items)
+}
+
+/// Build an `Item` matching a single value (for use inside `one_of`).
+pub fn item_exact(value value: Int) -> validator.Item {
+  validator.Exact(value)
+}
+
+/// Build an `Item` matching every value in `[from, to]` inclusive.
+pub fn item_range(from start: Int, to end: Int) -> validator.Item {
+  validator.Range(start, end)
+}
+
+/// Build an `Item` of the form `*/step` (every `step`-th value across
+/// the field's full range).
+pub fn item_step_any(step step: Int) -> validator.Item {
+  validator.Step(validator.StepAny, step)
+}
+
+/// Build an `Item` of the form `start/step`.
+pub fn item_step_from(start start: Int, step step: Int) -> validator.Item {
+  validator.Step(validator.StepExact(start), step)
+}
+
+/// Build an `Item` of the form `from-to/step`.
+pub fn item_step_between(
+  from start: Int,
+  to end: Int,
+  step step: Int,
+) -> validator.Item {
+  validator.Step(validator.StepRange(start, end), step)
 }
 
 pub fn with_minute(
