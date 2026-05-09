@@ -1,25 +1,29 @@
 import automata/event.{type Event}
 import automata/event/metadata
 import automata/event/source.{type Source, type SourceKind}
+import automata/fsnotify/ast as fs_ast
+import automata/fsnotify/event.{type WatchEvent} as fs_event
+import automata/fsnotify/op as fs_op
 import automata/schedule/ast.{type ValidDateTime}
 import gleam/dict.{type Dict}
+import gleam/list
 import gleam/option.{type Option}
+import gleam/string
 
 /// Built-in body sum used by the `BuiltinEvent` alias.
 ///
-/// Closed for known kinds plus a `Custom` escape hatch. New kinds are
-/// added as the ecosystem standardises on them; until then, callers
-/// emit `Custom("vendor.kind", attributes)`.
+/// Closed for known kinds plus a `Custom` escape hatch. The
+/// `FileSystem` variant carries an `automata/fsnotify` `WatchEvent`
+/// so the full set of ops (`Create`, `Write`, `Remove`, `Rename`,
+/// `Chmod`) and the rename's old path can travel together with the
+/// event without callers having to invent ad-hoc body kinds.
 pub type EventBody {
   Scheduled(
     plan_id: String,
     fired_at: ValidDateTime,
     schedule_kind: ScheduleKind,
   )
-  FileCreated(path: String)
-  FileModified(path: String)
-  FileDeleted(path: String)
-  FileRenamed(from: String, to: String)
+  FileSystem(event: WatchEvent)
   Manual(reason: Option(String), actor: Option(String))
   Custom(kind: String, attributes: Dict(String, String))
 }
@@ -37,14 +41,14 @@ pub type BuiltinEvent =
 
 /// Stable string label for routing tables, metrics, and structured logs.
 ///
-/// `Custom("slack.message_posted", _)` becomes `"custom:slack.message_posted"`.
+/// `FileSystem(_)` becomes `"file_system:create"` for a single-op
+/// event, `"file_system:create+write"` when several ops are present
+/// (lowercase ops joined by `+` in canonical order). `Custom("kind", _)`
+/// becomes `"custom:kind"`.
 pub fn kind(body: EventBody) -> String {
   case body {
     Scheduled(_, _, _) -> "scheduled"
-    FileCreated(_) -> "file_created"
-    FileModified(_) -> "file_modified"
-    FileDeleted(_) -> "file_deleted"
-    FileRenamed(_, _) -> "file_renamed"
+    FileSystem(event) -> "file_system:" <> file_system_op_label(event)
     Manual(_, _) -> "manual"
     Custom(name, _) -> "custom:" <> name
   }
@@ -58,20 +62,9 @@ pub fn scheduled(
   Scheduled(plan_id: plan_id, fired_at: fired_at, schedule_kind: schedule_kind)
 }
 
-pub fn file_created(path path: String) -> EventBody {
-  FileCreated(path: path)
-}
-
-pub fn file_modified(path path: String) -> EventBody {
-  FileModified(path: path)
-}
-
-pub fn file_deleted(path path: String) -> EventBody {
-  FileDeleted(path: path)
-}
-
-pub fn file_renamed(from from: String, to to: String) -> EventBody {
-  FileRenamed(from: from, to: to)
+/// Wrap an `automata/fsnotify` `WatchEvent` in the canonical body.
+pub fn file_system(event event: WatchEvent) -> EventBody {
+  FileSystem(event: event)
 }
 
 pub fn manual(
@@ -91,7 +84,7 @@ pub fn custom(
 /// Construct a `BuiltinEvent` whose `source.kind` is derived from
 /// `body`. This is the only sanctioned constructor for `BuiltinEvent`
 /// because it makes source/body misclassification unrepresentable —
-/// `Scheduled` always pairs with `ScheduleSource`, `FileModified` with
+/// `Scheduled` always pairs with `ScheduleSource`, `FileSystem(_)` with
 /// `FileSystemSource`, `Custom("vendor.kind", _)` with
 /// `CustomSource("vendor.kind")`, etc.
 pub fn new(
@@ -120,11 +113,21 @@ pub fn derived_source(body: EventBody, source_id: String) -> Source {
 pub fn derived_source_kind(body: EventBody) -> SourceKind {
   case body {
     Scheduled(_, _, _) -> source.ScheduleSource
-    FileCreated(_) -> source.FileSystemSource
-    FileModified(_) -> source.FileSystemSource
-    FileDeleted(_) -> source.FileSystemSource
-    FileRenamed(_, _) -> source.FileSystemSource
+    FileSystem(_) -> source.FileSystemSource
     Manual(_, _) -> source.ManualSource
     Custom(name, _) -> source.CustomSource(name)
   }
+}
+
+fn file_system_op_label(event: WatchEvent) -> String {
+  event
+  |> fs_event.event_ops
+  |> fs_op.to_list
+  |> list.map(op_label)
+  |> string.join("+")
+}
+
+fn op_label(op: fs_ast.Op) -> String {
+  fs_op.op_to_string(op)
+  |> string.lowercase
 }

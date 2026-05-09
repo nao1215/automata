@@ -3,10 +3,18 @@ import automata/event/builtin/body
 import automata/event/builtin/filter as builtin_filter
 import automata/event/filter
 import automata/event/source
+import automata/fsnotify/ast as fs_ast
+import automata/fsnotify/event as fs_event
+import automata/fsnotify/path as fs_path
 import automata/schedule/ast as schedule_ast
 import gleam/dict
 import gleam/option
 import gleeunit/should
+
+fn normalized(path: String) {
+  let assert Ok(value) = fs_path.normalize(path: path)
+  value
+}
 
 fn at(year: Int, month: Int, day: Int) {
   let assert Ok(value) =
@@ -39,7 +47,7 @@ fn file_event(id: String, path: String) {
     id: id,
     occurred_at: at(2026, 5, 9),
     source: source.file_system(id: "watch-1"),
-    body: body.file_modified(path: path),
+    body: body.file_system(event: fs_event.written(path: normalized(path))),
   )
 }
 
@@ -67,7 +75,7 @@ pub fn not_inverts_test() {
 
 pub fn de_morgan_law_test() {
   let ev = file_event("e", "/var/log/app.log")
-  let f1 = builtin_filter.is_file_modified()
+  let f1 = builtin_filter.is_file_with_op(op: fs_ast.Write)
   let f2 = builtin_filter.by_path_prefix(prefix: "/etc/")
 
   filter.matches(filter.negate(filter.any_of([f1, f2])), ev)
@@ -288,14 +296,17 @@ pub fn occurred_before_is_strict_test() {
 
 pub fn on_body_option_returns_false_when_extractor_yields_none_test() {
   // Use a `Scheduled` event with an extractor that only returns Some
-  // for `FileModified`. This forces the None branch to fire.
+  // for `FileSystem`. This forces the None branch to fire.
   let ev = scheduled_event("e", "p")
 
   let f =
     filter.on_body_option(
       extract: fn(b) {
         case b {
-          body.FileModified(path) -> option.Some(path)
+          body.FileSystem(watch_event) ->
+            option.Some(
+              fs_path.path_to_string(fs_event.event_path(watch_event)),
+            )
           _ -> option.None
         }
       },

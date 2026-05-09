@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Matching and next-occurrence calculation for both cron and RRULE.
 - Iterator-based occurrence generation for both cron and RRULE.
 - Anchor-aware RRULE normalization with typed builder APIs.
+- `automata/fsnotify` module group: a pure-domain port of the Go
+  fsnotify semantics with zero I/O. Submodules cover `Op`, `EntryKind`,
+  `FsnotifyError` (`ast`); `NormalizedPath` and path canonicalisation
+  (`path`); set-based `Op` helpers (`op`); validating `Entry` smart
+  constructors (`entry`); `Snapshot` (`snapshot`); a subscription
+  `Watch` (`watch`); a `WatchEvent` opaque carrying a path, op set, and
+  optional `renamed_from` (`event`); and a snapshot differ that
+  reproduces fsnotify's create/write/remove/rename/chmod semantics
+  including file_id-based rename detection (`diff`).
+- Cross-OS CI matrix expanded to `ubuntu-latest`, `macos-latest`, and
+  `windows-latest` × `erlang`/`javascript` (six combinations).
 
 ### Changed
 
@@ -29,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   next-occurrence boundaries.
 - Project metadata and README now describe `automata` as a schedule
   library in addition to the original finite automata helper.
+- **BREAKING**: `automata/event/builtin/body.EventBody` replaces the
+  four `FileCreated/FileModified/FileDeleted/FileRenamed` variants and
+  their per-variant smart constructors with a single
+  `FileSystem(automata/fsnotify/event.WatchEvent)` variant, accessed
+  through `body.file_system(event)`. `body.kind/1` now returns
+  `"file_system:<op>"` (e.g. `"file_system:create+write"`,
+  `"file_system:rename"`) instead of the four legacy `"file_*"` strings.
+- **BREAKING**: `automata/event/builtin/{match,filter}` lose the
+  `is_file_created/modified/deleted/renamed` helpers in favour of a
+  unified `is_file_with_op(op)` that matches a `FileSystem(_)` body
+  against any `fsnotify` `Op` value.
 
 ### Removed
 

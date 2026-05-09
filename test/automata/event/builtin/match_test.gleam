@@ -2,10 +2,17 @@ import automata/event
 import automata/event/builtin/body
 import automata/event/builtin/match as builtin_match
 import automata/event/source
+import automata/fsnotify/event as fs_event
+import automata/fsnotify/path as fs_path
 import automata/schedule/ast as schedule_ast
 import gleam/dict
 import gleam/option.{None}
 import gleeunit/should
+
+fn normalized(path: String) {
+  let assert Ok(value) = fs_path.normalize(path: path)
+  value
+}
 
 fn now() {
   let assert Ok(value) =
@@ -51,7 +58,9 @@ fn fs_modified_event() {
     id: "f",
     occurred_at: now(),
     source: source.file_system(id: "watch"),
-    body: body.file_modified(path: "/var/log/app.log"),
+    body: body.file_system(
+      event: fs_event.written(path: normalized("/var/log/app.log")),
+    ),
   )
 }
 

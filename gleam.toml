@@ -72,3 +72,19 @@ prefer_guard_clause = "off"
 "src/automata/retry.gleam" = ["unused_exports"]
 "src/automata/retry/ast.gleam" = ["unused_exports"]
 "src/automata/retry/internal/prng.gleam" = ["unused_exports"]
+"src/automata/fsnotify.gleam" = ["unused_exports"]
+"src/automata/fsnotify/ast.gleam" = ["unused_exports"]
+"src/automata/fsnotify/path.gleam" = ["unused_exports"]
+"src/automata/fsnotify/op.gleam" = ["unused_exports"]
+"src/automata/fsnotify/entry.gleam" = ["unused_exports"]
+"src/automata/fsnotify/snapshot.gleam" = [
+  "unused_exports",
+  "thrown_away_error",
+]
+"src/automata/fsnotify/watch.gleam" = ["unused_exports"]
+"src/automata/fsnotify/event.gleam" = ["unused_exports"]
+"src/automata/fsnotify/diff.gleam" = [
+  "unused_exports",
+  "thrown_away_error",
+  "deep_nesting",
+]

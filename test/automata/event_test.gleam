@@ -2,10 +2,17 @@ import automata/event
 import automata/event/builtin/body
 import automata/event/metadata
 import automata/event/source
+import automata/fsnotify/event as fs_event
+import automata/fsnotify/path as fs_path
 import automata/schedule/ast as schedule_ast
 import gleam/dict
 import gleam/option.{None, Some}
 import gleeunit/should
+
+fn normalized(path: String) {
+  let assert Ok(value) = fs_path.normalize(path: path)
+  value
+}
 
 fn fixed_now() {
   let assert Ok(value) =
@@ -64,7 +71,9 @@ pub fn continue_from_chains_metadata_test() {
       id: "parent-1",
       occurred_at: fixed_now(),
       source: source.file_system(id: "/var/log"),
-      body: body.file_modified(path: "/var/log/app.log"),
+      body: body.file_system(
+        event: fs_event.written(path: normalized("/var/log/app.log")),
+      ),
     )
     |> event.with_correlation_id("corr-A")
     |> event.with_trace_id("trace-A")
@@ -138,7 +147,9 @@ pub fn builtin_new_derives_file_system_source_for_file_body_test() {
       id: "evt-1",
       occurred_at: now,
       source_id: "watch-1",
-      body: body.file_modified(path: "/var/log/app.log"),
+      body: body.file_system(
+        event: fs_event.written(path: normalized("/var/log/app.log")),
+      ),
     )
 
   ev.source.kind |> should.equal(source.FileSystemSource)
@@ -179,11 +190,25 @@ pub fn builtin_body_kind_strings_test() {
   ))
   |> should.equal("scheduled")
 
-  body.kind(body.file_created(path: "/tmp/a")) |> should.equal("file_created")
-  body.kind(body.file_modified(path: "/tmp/a")) |> should.equal("file_modified")
-  body.kind(body.file_deleted(path: "/tmp/a")) |> should.equal("file_deleted")
-  body.kind(body.file_renamed(from: "/a", to: "/b"))
-  |> should.equal("file_renamed")
+  body.kind(
+    body.file_system(event: fs_event.created(path: normalized("/tmp/a"))),
+  )
+  |> should.equal("file_system:create")
+  body.kind(
+    body.file_system(event: fs_event.written(path: normalized("/tmp/a"))),
+  )
+  |> should.equal("file_system:write")
+  body.kind(
+    body.file_system(event: fs_event.removed(path: normalized("/tmp/a"))),
+  )
+  |> should.equal("file_system:remove")
+  body.kind(
+    body.file_system(event: fs_event.renamed(
+      to: normalized("/b"),
+      from: normalized("/a"),
+    )),
+  )
+  |> should.equal("file_system:rename")
   body.kind(body.manual(reason: None, actor: None)) |> should.equal("manual")
   body.kind(body.custom(
     kind: "slack.message_posted",
