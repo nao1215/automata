@@ -69,3 +69,6 @@ prefer_guard_clause = "off"
   "thrown_away_error",
 ]
 "src/automata/event/builtin/match.gleam" = ["unused_exports"]
+"src/automata/retry.gleam" = ["unused_exports"]
+"src/automata/retry/ast.gleam" = ["unused_exports"]
+"src/automata/retry/internal/prng.gleam" = ["unused_exports"]

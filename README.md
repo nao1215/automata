@@ -24,6 +24,9 @@ Current modules:
 - `automata/event` - common event abstraction shared across the
   ecosystem (cron/rrule firings, file-system notifications, manual
   triggers, future webhooks/queues/signals)
+- `automata/retry` - deterministic retry-policy primitives: pure
+  data describing how to back off after a failure, calculated
+  identically on the BEAM and JavaScript targets
 
 ## Requirements
 
@@ -401,6 +404,74 @@ the event stream. Filter helpers `filter.occurred_between/2`,
 `filter.occurred_after/1`, and `filter.occurred_before/1` likewise
 accept `ValidDateTime`.
 
+## Retry
+
+`automata/retry` provides retry-policy primitives that other layers
+(HTTP clients, command execution, fsnotify, future runtime, future
+webhook/queue integrations) can reuse with the same vocabulary. The
+module is pure: it does not sleep, spawn processes, own timers, or
+classify failures. It computes, given a policy and a `FailureKind`,
+the next delay and whether to keep going.
+
+Cross-target safety is taken seriously. All arithmetic stays inside
+JavaScript's 53-bit safe integer range, the bundled PRNG (Xorshift32)
+is implemented in Gleam without depending on `Math.random` or
+`:rand`, and the same `(policy, seed, failure-sequence)` triple
+produces the same `Decision` list on the BEAM and on the JavaScript
+target.
+
+```gleam
+import automata/retry
+import automata/retry/ast as retry_ast
+
+pub fn http_backoff() {
+  let assert Ok(initial) = retry_ast.from_milliseconds(milliseconds: 100)
+  let assert Ok(cap) = retry_ast.from_seconds(seconds: 30)
+  let assert Ok(base) =
+    retry.capped_exponential(
+      initial: initial,
+      multiplier: 2,
+      cap: cap,
+      max_attempts: 6,
+    )
+  retry.with_jitter(policy: base, jitter: retry_ast.FullJitter)
+}
+
+pub fn drive(policy) {
+  let ctx0 = retry.start(policy: policy, seed: 12_345)
+
+  case retry.decide(ctx: ctx0, failure: retry_ast.Transient) {
+    retry.Retry(delay: delay, next: _next_ctx) -> {
+      // Caller (a runtime, an HTTP client) sleeps for `delay`,
+      // re-runs the operation, then calls decide again with
+      // `next_ctx`. The retry module never sleeps itself.
+      delay
+    }
+    retry.GiveUp(reason: _reason) -> {
+      // Reason carries enough structure to log / alert without
+      // string parsing: PolicyDisallowsRetry, MaxAttemptsReached,
+      // PermanentFailureSignaled, DelayOverflow.
+      retry_ast.unsafe_milliseconds(value: 0)
+    }
+  }
+}
+```
+
+`max_attempts: N` means N total attempts (one initial try plus
+`N - 1` retries). Permanent failures short-circuit regardless of the
+policy: callers that classify their own errors as `Permanent` get an
+immediate `GiveUp(PermanentFailureSignaled(at_attempt:))` even on a
+generous policy.
+
+Inspectable, immutable state lives in an opaque `Context`:
+
+- `retry.current_attempt(ctx)` - number of attempts completed so far.
+- `retry.cumulative_delay(ctx)` - sum of every delay handed out
+  (useful for capping the entire sequence by wall time at the call
+  site, since the retry module itself does not own a clock).
+- `retry.policy(ctx)` - recover the policy a sequence was started
+  from.
+
 ## Module layout
 
 - `automata/cron/ast`, `parser`, `validator`, `normalize`, `evaluator`,
@@ -412,6 +483,7 @@ accept `ValidDateTime`.
   `automata/event/metadata`, `automata/event/filter`,
   `automata/event/match`, `automata/event/builtin/body`,
   `automata/event/builtin/filter`, `automata/event/builtin/match`
+- `automata/retry`, `automata/retry/ast`
 
 Breaking changes are acceptable in this repository and the current
 schedule APIs prefer correctness and explicit phase separation over
