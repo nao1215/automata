@@ -6,9 +6,9 @@
 [![Hex Docs](https://img.shields.io/badge/hexdocs-online-purple)](https://hexdocs.pm/automata)
 [![License](https://img.shields.io/hexpm/l/automata)](LICENSE)
 
-Building blocks for schedules, events, retries, filesystem-event
-diffs, and finite automata in Gleam. The library is pure data: it
-runs identically on the BEAM and the JavaScript target.
+Cron, RRULE, retries, filesystem events, and finite automata for
+Gleam. Pure data: every module produces the same answers on the
+BEAM and on the JavaScript target.
 
 ## Features
 
