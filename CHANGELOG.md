@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- README's "Retry" section now records the `multiplier >= 2` minimum on
+  `exponential` / `capped_exponential` (`retry.fixed` covers the
+  multiplier=1 case) and lists every `Jitter` strategy
+  (`NoJitter` / `FullJitter` / `EqualJitter`) in a single table, so a
+  first-time reader sees both options surfaced together. (#7)
+
 ### Fixed
 
 - `automata/cron`: comma-separated UPPERCASE alias lists in the

@@ -252,6 +252,23 @@ deadline. The bundled PRNG runs in pure Gleam, so the same
 `(policy, seed, failure-sequence)` triple produces the same
 `Decision` list on the BEAM and the JavaScript target.
 
+`multiplier` must be `>= 2` for `exponential` and `capped_exponential`
+(smaller values would not grow). For a constant delay with retries,
+reach for `retry.fixed` instead — the policy types are otherwise
+interchangeable through `retry.with_jitter` / `retry.start`.
+
+The available jitter strategies live in `automata/retry/ast`:
+
+| Constructor              | Spread                            |
+| ------------------------ | --------------------------------- |
+| `retry_ast.NoJitter`     | none — use the base delay as-is   |
+| `retry_ast.FullJitter`   | uniform on `[0, base]` (AWS "full jitter") |
+| `retry_ast.EqualJitter`  | uniform on `[base / 2, base]` (AWS "equal jitter") |
+
+`NoJitter` is the default for every `retry.fixed` / `retry.exponential` /
+`retry.capped_exponential` policy; reach for `retry.with_jitter` only
+when you want one of the spread strategies.
+
 ## Validated date-time
 
 `automata/schedule/ast` exposes `try_datetime/6` and
