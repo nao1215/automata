@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `automata/cron`: comma-separated UPPERCASE alias lists in the
+  day-of-week and month fields (`MON,WED,FRI`, `JAN,JUL`) were rejected
+  as `UnsupportedSyntax` because the validator's reserved-Quartz-char
+  pre-check matched `L`, `W`, `H` as substrings against the whole field
+  before the comma split, even when those characters appeared inside
+  legitimate alias tokens (`WED`, `THU`, `JUL`). The check now runs
+  per-token after `int.parse` and `parse_alias` have failed, so genuine
+  Quartz extensions are still caught (`UnsupportedSyntax(_, "15W")` for
+  `15W,20`) while alias lists pass. (#4)
+
 ## [0.1.0] - 2026-05-09
 
 Initial public release.
