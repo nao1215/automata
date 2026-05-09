@@ -1,0 +1,103 @@
+import automata/internal/calendar
+import automata/rrule/validator
+import automata/schedule/ast.{type DateTime}
+import gleam/option.{type Option, None, Some}
+
+pub type NormalizeError {
+  InvalidAnchor(DateTime)
+}
+
+pub type RRulePlan {
+  RRulePlan(
+    anchor: DateTime,
+    frequency: validator.Frequency,
+    interval: Int,
+    end_condition: validator.EndCondition,
+    by_day: Option(List(validator.WeekdaySpecifier)),
+    by_month: Option(List(Int)),
+    by_month_day: Option(List(Int)),
+    by_hour: List(Int),
+    by_minute: List(Int),
+    second: Int,
+  )
+}
+
+pub fn normalize(
+  spec spec: validator.ValidRRule,
+  anchor anchor: DateTime,
+) -> Result(RRulePlan, NormalizeError) {
+  case calendar.is_valid_datetime(anchor) {
+    False -> Error(InvalidAnchor(anchor))
+    True ->
+      Ok(RRulePlan(
+        anchor: anchor,
+        frequency: validator.frequency(spec),
+        interval: validator.interval(spec),
+        end_condition: validator.end_condition(spec),
+        by_day: default_by_day(spec, anchor),
+        by_month: default_by_month(spec, anchor),
+        by_month_day: default_by_month_day(spec, anchor),
+        by_hour: case validator.by_hour(spec) {
+          Some(values) -> values
+          None -> [anchor.time.hour]
+        },
+        by_minute: case validator.by_minute(spec) {
+          Some(values) -> values
+          None -> [anchor.time.minute]
+        },
+        second: anchor.time.second,
+      ))
+  }
+}
+
+fn default_by_day(
+  spec: validator.ValidRRule,
+  anchor: DateTime,
+) -> Option(List(validator.WeekdaySpecifier)) {
+  case validator.by_day(spec) {
+    Some(values) -> Some(values)
+    None ->
+      case validator.frequency(spec) {
+        validator.Weekly ->
+          Some([validator.EveryWeekday(calendar.weekday(anchor))])
+        _ -> None
+      }
+  }
+}
+
+fn default_by_month(
+  spec: validator.ValidRRule,
+  anchor: DateTime,
+) -> Option(List(Int)) {
+  case validator.by_month(spec) {
+    Some(values) -> Some(values)
+    None ->
+      case validator.frequency(spec) {
+        validator.Yearly ->
+          case validator.by_day(spec), validator.by_month_day(spec) {
+            None, None -> Some([anchor.date.month])
+            _, _ -> None
+          }
+        _ -> None
+      }
+  }
+}
+
+fn default_by_month_day(
+  spec: validator.ValidRRule,
+  anchor: DateTime,
+) -> Option(List(Int)) {
+  case validator.by_month_day(spec) {
+    Some(values) -> Some(values)
+    None ->
+      case validator.by_day(spec) {
+        Some(_) -> None
+        None ->
+          case validator.frequency(spec) {
+            validator.Monthly -> Some([anchor.date.day])
+            validator.Yearly -> Some([anchor.date.day])
+            _ -> None
+          }
+      }
+  }
+}
