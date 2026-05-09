@@ -21,6 +21,9 @@ Current modules:
   normalizer, evaluator, iterator, next, and builder modules
 - `automata/schedule` - shared abstraction over compiled cron and
   RRULE schedules
+- `automata/event` - common event abstraction shared across the
+  ecosystem (cron/rrule firings, file-system notifications, manual
+  triggers, future webhooks/queues/signals)
 
 ## Requirements
 
@@ -270,6 +273,65 @@ pub fn shared_api() {
 }
 ```
 
+## Events
+
+`automata/event` is the common event abstraction shared across the
+automata ecosystem. It defines value-only types for "something
+happened" — schedulers, file watchers, manual triggers, and future
+webhook/queue/signal integrations all produce the same `Event` shape
+so that workers and runtimes can route them with one vocabulary.
+
+The library does not own a runtime. It does not run event loops, send
+network messages, or implement queues. It only defines types,
+metadata, classification, filtering, and matching primitives.
+
+```gleam
+import automata/event
+import automata/event/builtin/body
+import automata/event/builtin/filter as builtin_filter
+import automata/event/filter
+import automata/event/source
+import automata/schedule/ast as schedule_ast
+
+pub fn cron_event() {
+  let now = schedule_ast.datetime(2026, 5, 9, 9, 0, 0)
+  event.new(
+    id: "evt-001",
+    occurred_at: now,
+    source: source.schedule(id: "daily-report"),
+    body: body.scheduled(
+      plan_id: "daily-report",
+      fired_at: now,
+      schedule_kind: body.CronSchedule,
+    ),
+  )
+  |> event.with_correlation_id("trace-2026-05-09")
+}
+
+pub fn watch_logs() {
+  filter.all_of([
+    builtin_filter.is_file_event(),
+    builtin_filter.by_path_prefix(prefix: "/var/log/"),
+    filter.negate(builtin_filter.by_path_suffix(suffix: ".tmp")),
+  ])
+}
+```
+
+`Event(body)` is parameterised so callers can pipeline typed events
+inside their own code, while ecosystem-wide layers use the
+`BuiltinEvent` alias backed by the closed `EventBody` sum
+(`Scheduled`, `FileCreated`, `FileModified`, `FileDeleted`,
+`FileRenamed`, `Manual`, `Custom`).
+
+`Custom(kind, attributes)` is the escape hatch for events that do not
+yet have a typed variant; recommended naming is `"<vendor>.<event>"`
+(for example `"slack.message_posted"`).
+
+`event.continue_from/5` derives a child event whose metadata chains
+from a parent: it copies `correlation_id` and `trace_id` and sets
+`causation_id` to `parent.id`, so chains of custody are preserved
+without manual bookkeeping.
+
 ## Module layout
 
 - `automata/cron/ast`, `parser`, `validator`, `normalize`, `evaluator`,
@@ -279,6 +341,10 @@ pub fn shared_api() {
 - `automata/schedule`, `automata/schedule/ast`,
   `automata/schedule/evaluator`, `automata/schedule/iterator`,
   `automata/schedule/next`
+- `automata/event`, `automata/event/source`,
+  `automata/event/metadata`, `automata/event/filter`,
+  `automata/event/match`, `automata/event/builtin/body`,
+  `automata/event/builtin/filter`, `automata/event/builtin/match`
 
 Breaking changes are acceptable in this repository and the current
 schedule APIs prefer correctness and explicit phase separation over

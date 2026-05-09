@@ -58,3 +58,14 @@ prefer_guard_clause = "off"
 ]
 "src/automata/rrule/validator.gleam" = ["deep_nesting"]
 "src/automata/schedule/ast.gleam" = ["unused_exports"]
+"src/automata/event.gleam" = ["unused_exports"]
+"src/automata/event/source.gleam" = ["unused_exports"]
+"src/automata/event/metadata.gleam" = ["unused_exports", "thrown_away_error"]
+"src/automata/event/filter.gleam" = ["unused_exports"]
+"src/automata/event/match.gleam" = ["unused_exports"]
+"src/automata/event/builtin/body.gleam" = ["unused_exports"]
+"src/automata/event/builtin/filter.gleam" = [
+  "unused_exports",
+  "thrown_away_error",
+]
+"src/automata/event/builtin/match.gleam" = ["unused_exports"]
