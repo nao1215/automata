@@ -14,6 +14,16 @@ pub opaque type CronIterator {
   CronIterator(plan: CronPlan, cursor: DateTime)
 }
 
+/// Outcome of one `step` on a `CronIterator`.
+///
+/// `Yield(at:, next:)` carries the next occurrence and a fresh
+/// iterator positioned just after it. `Done` indicates the search
+/// could not find a next occurrence within its internal recursion
+/// guard (~5,000,000 candidate minute steps, ≈ 9.5 years) or before
+/// the maximum representable `DateTime` boundary. UNIX cron is
+/// non-terminating, so for `CronPlan`s derived from a validated
+/// `ValidCron` the `Done` arm is unreachable in practice and exists
+/// purely as a safety net for pathological inputs.
 pub type Step {
   Yield(at: ValidDateTime, next: CronIterator)
   Done

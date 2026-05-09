@@ -60,6 +60,30 @@ pub fn iterator_after(
   |> iterator_after_plan(boundary: boundary)
 }
 
+/// Return the next `ValidDateTime` after `after` that the cron spec
+/// fires at, or `None` when no such occurrence exists.
+///
+/// UNIX cron is non-terminating — every well-formed `ValidCron`
+/// specification has infinitely many future firings — so for typical
+/// inputs `None` is **unreachable in practice**. The `Option` shape
+/// is preserved for two narrow cases:
+///
+/// 1. Internal recursion guard. The next-firing search bounds itself
+///    at ~5,000,000 candidate steps (≈ 9.5 years of minute granularity)
+///    so a misbehaving plan cannot loop forever. A sufficiently
+///    pathological combination of selectors that has no firing within
+///    that horizon is treated as "no next occurrence".
+/// 2. The maximum representable `ValidDateTime` boundary. If the
+///    search would have to advance past the calendar's representable
+///    range to find the next firing, it returns `None` rather than
+///    fabricating a value.
+///
+/// Callers that compose `next_after` into a pipeline can safely treat
+/// `None` as "no next time" without distinguishing the two reasons —
+/// both are degenerate cases that should never be reached for cron
+/// specs that came out of `validate`. RRULE's `next_after` returns
+/// `Option` for a different reason (a `COUNT=N` rule legitimately
+/// exhausts); the cron variant has no such terminating clause.
 pub fn next_after(
   spec spec: validator.ValidCron,
   after after: ValidDateTime,
@@ -87,7 +111,10 @@ pub fn iterator_after_plan(
   cron_iterator.after(plan, boundary: boundary)
 }
 
-/// Plan-reuse counterpart to `next_after/2`.
+/// Plan-reuse counterpart to `next_after/2`. Same `None` semantics:
+/// see the `next_after/2` doc-comment for the (very narrow) cases
+/// where this can return `None` for a `ValidCron` that came out of
+/// `validate`.
 pub fn next_after_plan(
   plan plan: cron_normalize.CronPlan,
   after after: ValidDateTime,
