@@ -1,10 +1,10 @@
-import automata/fsnotify/ast.{type Op, Chmod, Create, Remove, Rename, Write}
-import automata/fsnotify/entry.{type Entry}
-import automata/fsnotify/event.{type WatchEvent}
-import automata/fsnotify/op
-import automata/fsnotify/path.{type NormalizedPath}
-import automata/fsnotify/snapshot.{type Snapshot}
-import automata/fsnotify/watch.{type Watch}
+import automata/fsevent/ast.{type Op, Chmod, Create, Remove, Rename, Write}
+import automata/fsevent/entry.{type Entry}
+import automata/fsevent/event.{type WatchEvent}
+import automata/fsevent/op
+import automata/fsevent/path.{type NormalizedPath}
+import automata/fsevent/snapshot.{type Snapshot}
+import automata/fsevent/watch.{type Watch}
 import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}

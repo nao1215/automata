@@ -2,8 +2,8 @@ import automata/event
 import automata/event/builtin/body
 import automata/event/metadata
 import automata/event/source
-import automata/fsnotify/event as fs_event
-import automata/fsnotify/path as fs_path
+import automata/fsevent/event as fs_event
+import automata/fsevent/path as fs_path
 import automata/schedule/ast as schedule_ast
 import gleam/dict
 import gleam/option.{None, Some}

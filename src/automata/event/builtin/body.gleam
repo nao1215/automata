@@ -1,9 +1,9 @@
 import automata/event.{type Event}
 import automata/event/metadata
 import automata/event/source.{type Source, type SourceKind}
-import automata/fsnotify/ast as fs_ast
-import automata/fsnotify/event.{type WatchEvent} as fs_event
-import automata/fsnotify/op as fs_op
+import automata/fsevent/ast as fs_ast
+import automata/fsevent/event.{type WatchEvent} as fs_event
+import automata/fsevent/op as fs_op
 import automata/schedule/ast.{type ValidDateTime}
 import gleam/dict.{type Dict}
 import gleam/list
@@ -13,7 +13,7 @@ import gleam/string
 /// Built-in body sum used by the `BuiltinEvent` alias.
 ///
 /// Closed for known kinds plus a `Custom` escape hatch. The
-/// `FileSystem` variant carries an `automata/fsnotify` `WatchEvent`
+/// `FileSystem` variant carries an `automata/fsevent` `WatchEvent`
 /// so the full set of ops (`Create`, `Write`, `Remove`, `Rename`,
 /// `Chmod`) and the rename's old path can travel together with the
 /// event without callers having to invent ad-hoc body kinds.
@@ -62,7 +62,7 @@ pub fn scheduled(
   Scheduled(plan_id: plan_id, fired_at: fired_at, schedule_kind: schedule_kind)
 }
 
-/// Wrap an `automata/fsnotify` `WatchEvent` in the canonical body.
+/// Wrap an `automata/fsevent` `WatchEvent` in the canonical body.
 pub fn file_system(event event: WatchEvent) -> EventBody {
   FileSystem(event: event)
 }

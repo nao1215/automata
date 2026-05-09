@@ -1,6 +1,6 @@
-import automata/fsnotify/ast.{type FsnotifyError, DuplicatePath}
-import automata/fsnotify/entry.{type Entry}
-import automata/fsnotify/path.{type NormalizedPath}
+import automata/fsevent/ast.{type FseventError, DuplicatePath}
+import automata/fsevent/entry.{type Entry}
+import automata/fsevent/path.{type NormalizedPath}
 import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -27,7 +27,7 @@ pub fn empty_snapshot() -> Snapshot {
 /// `file_id` but different paths are allowed (POSIX hard links).
 pub fn from_entries(
   entries entries: List(Entry),
-) -> Result(Snapshot, FsnotifyError) {
+) -> Result(Snapshot, FseventError) {
   insert_all(empty_snapshot(), entries)
 }
 
@@ -35,7 +35,7 @@ pub fn from_entries(
 pub fn add_entry(
   snapshot snapshot: Snapshot,
   entry e: Entry,
-) -> Result(Snapshot, FsnotifyError) {
+) -> Result(Snapshot, FseventError) {
   let key = entry_key(e)
   case dict.has_key(snapshot.by_path, key) {
     True -> Error(DuplicatePath(path: key))
@@ -105,7 +105,7 @@ pub fn lookup_by_key(snapshot: Snapshot, key: String) -> Option(Entry) {
 fn insert_all(
   snapshot: Snapshot,
   remaining: List(Entry),
-) -> Result(Snapshot, FsnotifyError) {
+) -> Result(Snapshot, FseventError) {
   case remaining {
     [] -> Ok(snapshot)
     [head, ..rest] ->

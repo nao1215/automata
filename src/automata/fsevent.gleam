@@ -1,9 +1,9 @@
-import automata/fsnotify/ast
-import automata/fsnotify/diff as fs_diff
-import automata/fsnotify/event as fs_event
-import automata/fsnotify/path as fs_path
-import automata/fsnotify/snapshot as fs_snapshot
-import automata/fsnotify/watch as fs_watch
+import automata/fsevent/ast
+import automata/fsevent/diff as fs_diff
+import automata/fsevent/event as fs_event
+import automata/fsevent/path as fs_path
+import automata/fsevent/snapshot as fs_snapshot
+import automata/fsevent/watch as fs_watch
 
 /// Pure-domain port of the Go fsnotify semantics: `Create`, `Write`,
 /// `Remove`, `Rename`, `Chmod` operations derived from comparing two
@@ -14,7 +14,7 @@ import automata/fsnotify/watch as fs_watch
 ///
 /// This module is the user-facing facade. Each submodule remains a
 /// fine-grained entry point: callers that only need path
-/// normalisation can `import automata/fsnotify/path` directly without
+/// normalisation can `import automata/fsevent/path` directly without
 /// pulling in the differ.
 pub type Op =
   ast.Op
@@ -22,8 +22,8 @@ pub type Op =
 pub type EntryKind =
   ast.EntryKind
 
-pub type FsnotifyError =
-  ast.FsnotifyError
+pub type FseventError =
+  ast.FseventError
 
 /// A default `Watch`: every op subscribed.
 pub fn watch() -> fs_watch.Watch {
@@ -43,6 +43,6 @@ pub fn diff(
 /// Canonicalise a string into a `NormalizedPath`.
 pub fn normalize(
   path path: String,
-) -> Result(fs_path.NormalizedPath, ast.FsnotifyError) {
+) -> Result(fs_path.NormalizedPath, ast.FseventError) {
   fs_path.normalize(path: path)
 }

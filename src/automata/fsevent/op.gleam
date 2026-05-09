@@ -1,4 +1,4 @@
-import automata/fsnotify/ast.{type Op, Chmod, Create, Remove, Rename, Write}
+import automata/fsevent/ast.{type Op, Chmod, Create, Remove, Rename, Write}
 import gleam/list
 import gleam/set.{type Set}
 import gleam/string

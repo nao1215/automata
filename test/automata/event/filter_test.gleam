@@ -3,9 +3,9 @@ import automata/event/builtin/body
 import automata/event/builtin/filter as builtin_filter
 import automata/event/filter
 import automata/event/source
-import automata/fsnotify/ast as fs_ast
-import automata/fsnotify/event as fs_event
-import automata/fsnotify/path as fs_path
+import automata/fsevent/ast as fs_ast
+import automata/fsevent/event as fs_event
+import automata/fsevent/path as fs_path
 import automata/schedule/ast as schedule_ast
 import gleam/dict
 import gleam/option

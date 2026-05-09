@@ -1,6 +1,6 @@
-import automata/fsnotify/ast.{Chmod, Create, Remove, Rename, Write}
-import automata/fsnotify/op
-import automata/fsnotify/watch
+import automata/fsevent/ast.{Chmod, Create, Remove, Rename, Write}
+import automata/fsevent/op
+import automata/fsevent/watch
 import gleam/set
 import gleeunit/should
 

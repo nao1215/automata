@@ -1,9 +1,9 @@
-import automata/fsnotify/ast.{
+import automata/fsevent/ast.{
   Directory, EmptyOptionalField, EntryFieldOverflow, File, NegativeEntryField,
   Symlink,
 }
-import automata/fsnotify/entry
-import automata/fsnotify/path
+import automata/fsevent/entry
+import automata/fsevent/path
 import gleam/option.{None, Some}
 import gleeunit/should
 

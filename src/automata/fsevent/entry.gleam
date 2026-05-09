@@ -1,8 +1,8 @@
-import automata/fsnotify/ast.{
-  type EntryKind, type FsnotifyError, Directory, EmptyOptionalField,
+import automata/fsevent/ast.{
+  type EntryKind, type FseventError, Directory, EmptyOptionalField,
   EntryFieldOverflow, File, NegativeEntryField, Symlink,
 }
-import automata/fsnotify/path.{type NormalizedPath}
+import automata/fsevent/path.{type NormalizedPath}
 import gleam/option.{type Option, None, Some}
 
 /// Largest integer JavaScript's `Number` can represent without losing
@@ -47,7 +47,7 @@ pub fn entry_file(
   mode mode: Int,
   content_hash content_hash: Option(String),
   file_id file_id: Option(String),
-) -> Result(Entry, FsnotifyError) {
+) -> Result(Entry, FseventError) {
   case validate_size(size) {
     Error(error) -> Error(error)
     Ok(_) ->
@@ -83,7 +83,7 @@ pub fn entry_directory(
   mtime mtime: Int,
   mode mode: Int,
   file_id file_id: Option(String),
-) -> Result(Entry, FsnotifyError) {
+) -> Result(Entry, FseventError) {
   build_non_file(path, Directory, mtime, mode, file_id)
 }
 
@@ -94,7 +94,7 @@ pub fn entry_symlink(
   mtime mtime: Int,
   mode mode: Int,
   file_id file_id: Option(String),
-) -> Result(Entry, FsnotifyError) {
+) -> Result(Entry, FseventError) {
   build_non_file(path, Symlink, mtime, mode, file_id)
 }
 
@@ -153,7 +153,7 @@ fn build_non_file(
   mtime: Int,
   mode: Int,
   file_id: Option(String),
-) -> Result(Entry, FsnotifyError) {
+) -> Result(Entry, FseventError) {
   case validate_mtime(mtime) {
     Error(error) -> Error(error)
     Ok(_) ->
@@ -173,18 +173,18 @@ fn build_non_file(
   }
 }
 
-fn validate_size(size: Int) -> Result(Nil, FsnotifyError) {
+fn validate_size(size: Int) -> Result(Nil, FseventError) {
   validate_non_negative_bounded("size", size)
 }
 
-fn validate_mtime(mtime: Int) -> Result(Nil, FsnotifyError) {
+fn validate_mtime(mtime: Int) -> Result(Nil, FseventError) {
   validate_non_negative_bounded("mtime", mtime)
 }
 
 fn validate_non_negative_bounded(
   field: String,
   value: Int,
-) -> Result(Nil, FsnotifyError) {
+) -> Result(Nil, FseventError) {
   case value < 0 {
     True -> Error(NegativeEntryField(field: field, actual: value))
     False ->
@@ -198,7 +198,7 @@ fn validate_non_negative_bounded(
 fn validate_optional_string(
   field: String,
   value: Option(String),
-) -> Result(Nil, FsnotifyError) {
+) -> Result(Nil, FseventError) {
   case value {
     None -> Ok(Nil)
     Some("") -> Error(EmptyOptionalField(field: field))

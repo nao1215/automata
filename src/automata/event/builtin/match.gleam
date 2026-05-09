@@ -1,7 +1,7 @@
 import automata/event.{type Event}
 import automata/event/builtin/body.{type EventBody, type ScheduleKind}
-import automata/fsnotify/ast.{type Op}
-import automata/fsnotify/event as fs_event
+import automata/fsevent/ast.{type Op}
+import automata/fsevent/event as fs_event
 
 pub fn is_scheduled(event event: Event(EventBody)) -> Bool {
   case event.body {

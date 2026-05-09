@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Matching and next-occurrence calculation for both cron and RRULE.
 - Iterator-based occurrence generation for both cron and RRULE.
 - Anchor-aware RRULE normalization with typed builder APIs.
-- `automata/fsnotify` module group: a pure-domain port of the Go
+- `automata/fsevent` module group: a pure-domain port of the Go
   fsnotify semantics with zero I/O. Submodules cover `Op`, `EntryKind`,
-  `FsnotifyError` (`ast`); `NormalizedPath` and path canonicalisation
+  `FseventError` (`ast`); `NormalizedPath` and path canonicalisation
   (`path`); set-based `Op` helpers (`op`); validating `Entry` smart
   constructors (`entry`); `Snapshot` (`snapshot`); a subscription
   `Watch` (`watch`); a `WatchEvent` opaque carrying a path, op set, and
@@ -43,14 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **BREAKING**: `automata/event/builtin/body.EventBody` replaces the
   four `FileCreated/FileModified/FileDeleted/FileRenamed` variants and
   their per-variant smart constructors with a single
-  `FileSystem(automata/fsnotify/event.WatchEvent)` variant, accessed
+  `FileSystem(automata/fsevent/event.WatchEvent)` variant, accessed
   through `body.file_system(event)`. `body.kind/1` now returns
   `"file_system:<op>"` (e.g. `"file_system:create+write"`,
   `"file_system:rename"`) instead of the four legacy `"file_*"` strings.
 - **BREAKING**: `automata/event/builtin/{match,filter}` lose the
   `is_file_created/modified/deleted/renamed` helpers in favour of a
   unified `is_file_with_op(op)` that matches a `FileSystem(_)` body
-  against any `fsnotify` `Op` value.
+  against any `fsevent` `Op` value.
 
 ### Removed
 

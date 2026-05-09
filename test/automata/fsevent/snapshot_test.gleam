@@ -1,7 +1,7 @@
-import automata/fsnotify/ast.{DuplicatePath}
-import automata/fsnotify/entry
-import automata/fsnotify/path
-import automata/fsnotify/snapshot
+import automata/fsevent/ast.{DuplicatePath}
+import automata/fsevent/entry
+import automata/fsevent/path
+import automata/fsevent/snapshot
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should

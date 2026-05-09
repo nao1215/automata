@@ -1,9 +1,9 @@
-import automata/fsnotify/ast.{
-  type FsnotifyError, type Op, Chmod, Create, EmptyOps, Remove, Rename,
+import automata/fsevent/ast.{
+  type FseventError, type Op, Chmod, Create, EmptyOps, Remove, Rename,
   RenamedFromWithoutRenameOp, Write,
 }
-import automata/fsnotify/op
-import automata/fsnotify/path.{type NormalizedPath}
+import automata/fsevent/op
+import automata/fsevent/path.{type NormalizedPath}
 import gleam/option.{type Option, None, Some}
 import gleam/set.{type Set}
 
@@ -61,7 +61,7 @@ pub fn multi_op(
   path path: NormalizedPath,
   ops ops: Set(Op),
   renamed_from from: Option(NormalizedPath),
-) -> Result(WatchEvent, FsnotifyError) {
+) -> Result(WatchEvent, FseventError) {
   case set.size(ops) == 0 {
     True -> Error(EmptyOps)
     False ->

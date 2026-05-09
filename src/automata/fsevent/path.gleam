@@ -1,5 +1,5 @@
-import automata/fsnotify/ast.{
-  type FsnotifyError, EmptyPath, PathContainsDotSegment, PathContainsNullByte,
+import automata/fsevent/ast.{
+  type FseventError, EmptyPath, PathContainsDotSegment, PathContainsNullByte,
 }
 import gleam/list
 import gleam/string
@@ -20,7 +20,7 @@ pub opaque type NormalizedPath {
 /// The library does not call `os.path.realpath`-style resolution: it
 /// works at the string level so it stays pure and produces the same
 /// output on every platform regardless of the underlying filesystem.
-pub fn normalize(path path: String) -> Result(NormalizedPath, FsnotifyError) {
+pub fn normalize(path path: String) -> Result(NormalizedPath, FseventError) {
   case path {
     "" -> Error(EmptyPath)
     _ ->
@@ -97,7 +97,7 @@ fn segments_start_with(path: List(String), prefix: List(String)) -> Bool {
 fn validate_segments(
   original: String,
   segments: List(String),
-) -> Result(Nil, FsnotifyError) {
+) -> Result(Nil, FseventError) {
   case segments {
     [] -> Ok(Nil)
     [head, ..rest] ->

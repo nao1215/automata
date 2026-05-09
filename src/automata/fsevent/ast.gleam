@@ -27,11 +27,11 @@ pub type EntryKind {
 }
 
 /// Construction-time errors raised by the smart constructors in
-/// `automata/fsnotify` and friends.
+/// `automata/fsevent` and friends.
 ///
 /// Each variant carries enough structured context that an LLM or a
 /// human operator can understand the rejection without parsing prose.
-pub type FsnotifyError {
+pub type FseventError {
   /// `path.normalize` was given an empty string.
   EmptyPath
   /// A path segment is the literal `.` or `..`. The differ does not

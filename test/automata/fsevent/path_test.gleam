@@ -1,7 +1,7 @@
-import automata/fsnotify/ast.{
+import automata/fsevent/ast.{
   EmptyPath, PathContainsDotSegment, PathContainsNullByte,
 }
-import automata/fsnotify/path
+import automata/fsevent/path
 import gleeunit/should
 
 fn ok(input: String) {

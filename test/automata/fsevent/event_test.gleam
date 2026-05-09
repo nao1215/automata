@@ -1,9 +1,9 @@
-import automata/fsnotify/ast.{
+import automata/fsevent/ast.{
   Chmod, Create, EmptyOps, Remove, Rename, RenamedFromWithoutRenameOp, Write,
 }
-import automata/fsnotify/event
-import automata/fsnotify/op
-import automata/fsnotify/path
+import automata/fsevent/event
+import automata/fsevent/op
+import automata/fsevent/path
 import gleam/option.{None, Some}
 import gleeunit/should
 

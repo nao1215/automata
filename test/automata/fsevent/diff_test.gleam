@@ -1,12 +1,12 @@
-import automata/fsnotify
-import automata/fsnotify/ast.{Chmod, Create, Remove, Rename, Write}
-import automata/fsnotify/diff
-import automata/fsnotify/entry
-import automata/fsnotify/event
-import automata/fsnotify/op
-import automata/fsnotify/path
-import automata/fsnotify/snapshot
-import automata/fsnotify/watch
+import automata/fsevent
+import automata/fsevent/ast.{Chmod, Create, Remove, Rename, Write}
+import automata/fsevent/diff
+import automata/fsevent/entry
+import automata/fsevent/event
+import automata/fsevent/op
+import automata/fsevent/path
+import automata/fsevent/snapshot
+import automata/fsevent/watch
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -63,10 +63,10 @@ fn ops_of(ev: event.WatchEvent) -> List(ast.Op) {
 }
 
 pub fn empty_to_empty_emits_nothing_test() {
-  fsnotify.diff(
+  fsevent.diff(
     prev: snapshot.empty_snapshot(),
     curr: snapshot.empty_snapshot(),
-    watch: fsnotify.watch(),
+    watch: fsevent.watch(),
   )
   |> should.equal([])
 }
@@ -74,10 +74,10 @@ pub fn empty_to_empty_emits_nothing_test() {
 pub fn create_empty_file_emits_create_only_test() {
   let curr = snap([file("/a", 0, 1, 0o644, None, None)])
   let events =
-    fsnotify.diff(
+    fsevent.diff(
       prev: snapshot.empty_snapshot(),
       curr: curr,
-      watch: fsnotify.watch(),
+      watch: fsevent.watch(),
     )
   list.length(events) |> should.equal(1)
   let assert [ev] = events
@@ -87,10 +87,10 @@ pub fn create_empty_file_emits_create_only_test() {
 pub fn create_non_empty_file_emits_create_and_write_test() {
   let curr = snap([file("/a", 100, 1, 0o644, Some("h"), None)])
   let assert [ev] =
-    fsnotify.diff(
+    fsevent.diff(
       prev: snapshot.empty_snapshot(),
       curr: curr,
-      watch: fsnotify.watch(),
+      watch: fsevent.watch(),
     )
   ops_of(ev) |> should.equal([Create, Write])
 }
@@ -98,10 +98,10 @@ pub fn create_non_empty_file_emits_create_and_write_test() {
 pub fn create_directory_emits_create_only_test() {
   let curr = snap([dir("/d")])
   let assert [ev] =
-    fsnotify.diff(
+    fsevent.diff(
       prev: snapshot.empty_snapshot(),
       curr: curr,
-      watch: fsnotify.watch(),
+      watch: fsevent.watch(),
     )
   ops_of(ev) |> should.equal([Create])
 }
@@ -109,33 +109,31 @@ pub fn create_directory_emits_create_only_test() {
 pub fn remove_emits_remove_test() {
   let prev = snap([file("/a", 100, 1, 0o644, None, None)])
   let assert [ev] =
-    fsnotify.diff(
+    fsevent.diff(
       prev: prev,
       curr: snapshot.empty_snapshot(),
-      watch: fsnotify.watch(),
+      watch: fsevent.watch(),
     )
   ops_of(ev) |> should.equal([Remove])
 }
 
 pub fn unchanged_entry_emits_nothing_test() {
   let s = snap([file("/a", 10, 1, 0o644, Some("h"), None)])
-  fsnotify.diff(prev: s, curr: s, watch: fsnotify.watch())
+  fsevent.diff(prev: s, curr: s, watch: fsevent.watch())
   |> should.equal([])
 }
 
 pub fn mtime_change_emits_write_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/a", 10, 2, 0o644, None, None)])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Write])
 }
 
 pub fn size_change_emits_write_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/a", 20, 1, 0o644, None, None)])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Write])
 }
 
@@ -143,40 +141,35 @@ pub fn content_hash_change_emits_write_test() {
   // Same size and mtime, but hash differs (e.g. /sys-style FS).
   let prev = snap([file("/a", 10, 1, 0o644, Some("aaa"), None)])
   let curr = snap([file("/a", 10, 1, 0o644, Some("bbb"), None)])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Write])
 }
 
 pub fn mode_change_only_emits_chmod_test() {
   let prev = snap([file("/a", 10, 1, 0o644, Some("h"), None)])
   let curr = snap([file("/a", 10, 1, 0o755, Some("h"), None)])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Chmod])
 }
 
 pub fn write_and_chmod_combined_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/a", 20, 2, 0o755, None, None)])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Write, Chmod])
 }
 
 pub fn kind_change_emits_remove_and_create_test() {
   let prev = snap([file("/x", 10, 1, 0o644, None, None)])
   let curr = snap([dir("/x")])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Create, Remove])
 }
 
 pub fn rename_with_file_id_emits_rename_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, Some("inode-1"))])
   let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Rename])
   case event.event_renamed_from(event: ev) {
     Some(from) -> path.path_to_string(from) |> should.equal("/a")
@@ -187,16 +180,14 @@ pub fn rename_with_file_id_emits_rename_test() {
 pub fn rename_with_content_change_emits_rename_and_write_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, Some("inode-1"))])
   let curr = snap([file("/b", 20, 2, 0o644, None, Some("inode-1"))])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Write, Rename])
 }
 
 pub fn rename_with_mode_change_only_emits_rename_and_chmod_test() {
   let prev = snap([file("/a", 10, 1, 0o644, Some("h"), Some("inode-1"))])
   let curr = snap([file("/b", 10, 1, 0o755, Some("h"), Some("inode-1"))])
-  let assert [ev] =
-    fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   ops_of(ev) |> should.equal([Rename, Chmod])
 }
 
@@ -205,7 +196,7 @@ pub fn file_id_only_in_prev_does_not_pair_test() {
   // Remove + Create because there is nothing to pair with.
   let prev = snap([file("/a", 10, 1, 0o644, None, Some("inode-1"))])
   let curr = snap([file("/b", 10, 1, 0o644, None, None)])
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   list.length(events) |> should.equal(2)
   list.any(events, fn(ev) { event.event_has(event: ev, op: Rename) })
   |> should.equal(False)
@@ -214,7 +205,7 @@ pub fn file_id_only_in_prev_does_not_pair_test() {
 pub fn rename_without_file_id_falls_back_to_remove_create_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/b", 10, 1, 0o644, None, None)])
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   paths_of(events) |> should.equal(["/a", "/b"])
   let assert [a_ev, b_ev] = events
   ops_of(a_ev) |> should.equal([Remove])
@@ -230,7 +221,7 @@ pub fn ambiguous_rename_falls_back_to_remove_create_test() {
       file("/c", 10, 1, 0o644, None, Some("inode-1")),
     ])
   let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   // /a and /c removed, /b created. No Rename anywhere.
   list.length(events) |> should.equal(3)
   list.any(events, fn(ev) { event.event_has(event: ev, op: Rename) })
@@ -246,7 +237,7 @@ pub fn rename_to_existing_path_is_not_pair_test() {
       file("/a", 10, 1, 0o644, None, Some("inode-1")),
       file("/b", 10, 1, 0o644, None, Some("inode-1")),
     ])
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   list.length(events) |> should.equal(1)
   let assert [ev] = events
   path.path_to_string(event.event_path(event: ev)) |> should.equal("/b")
@@ -257,17 +248,17 @@ pub fn op_mask_filters_writes_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/a", 10, 1, 0o755, None, None)])
   let chmod_only =
-    fsnotify.watch()
+    fsevent.watch()
     |> watch.with_ops(ops: op.single_op(Chmod))
   let mtime_only_watch =
-    fsnotify.watch()
+    fsevent.watch()
     |> watch.with_ops(ops: op.single_op(Write))
 
-  let chmod_events = fsnotify.diff(prev: prev, curr: curr, watch: chmod_only)
+  let chmod_events = fsevent.diff(prev: prev, curr: curr, watch: chmod_only)
   let assert [ev] = chmod_events
   ops_of(ev) |> should.equal([Chmod])
 
-  fsnotify.diff(prev: prev, curr: curr, watch: mtime_only_watch)
+  fsevent.diff(prev: prev, curr: curr, watch: mtime_only_watch)
   |> should.equal([])
 }
 
@@ -276,9 +267,9 @@ pub fn op_mask_create_only_drops_other_ops_test() {
   let curr =
     snap([file("/a", 20, 2, 0o755, None, None), file("/b", 5, 1, 0, None, None)])
   let create_only =
-    fsnotify.watch()
+    fsevent.watch()
     |> watch.with_ops(ops: op.single_op(Create))
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: create_only)
+  let events = fsevent.diff(prev: prev, curr: curr, watch: create_only)
   // Only /b's Create survives; /a's Write|Chmod are masked out.
   list.length(events) |> should.equal(1)
   let assert [ev] = events
@@ -289,7 +280,7 @@ pub fn op_mask_create_only_drops_other_ops_test() {
 pub fn silent_watch_emits_nothing_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, None)])
   let curr = snap([file("/b", 10, 1, 0o644, None, None)])
-  fsnotify.diff(prev: prev, curr: curr, watch: watch.watch_no_ops())
+  fsevent.diff(prev: prev, curr: curr, watch: watch.watch_no_ops())
   |> should.equal([])
 }
 
@@ -299,9 +290,9 @@ pub fn rename_filtered_out_drops_renamed_from_when_only_write_remains_test() {
   let prev = snap([file("/a", 10, 1, 0o644, None, Some("inode-1"))])
   let curr = snap([file("/b", 20, 2, 0o644, None, Some("inode-1"))])
   let watch_value =
-    fsnotify.watch()
+    fsevent.watch()
     |> watch.with_ops(ops: op.single_op(Write))
-  let assert [ev] = fsnotify.diff(prev: prev, curr: curr, watch: watch_value)
+  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: watch_value)
   ops_of(ev) |> should.equal([Write])
   event.event_renamed_from(event: ev) |> should.equal(None)
 }
@@ -314,7 +305,7 @@ pub fn events_sorted_by_path_test() {
       file("/a", 0, 1, 0, None, None),
       file("/b", 0, 1, 0, None, None),
     ])
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   paths_of(events) |> should.equal(["/a", "/b", "/c"])
 }
 
@@ -326,7 +317,7 @@ pub fn large_snapshot_diff_completes_test() {
   let curr_entries = build_n_files(200, 10, 2)
   let prev = snap(prev_entries)
   let curr = snap(curr_entries)
-  let events = fsnotify.diff(prev: prev, curr: curr, watch: fsnotify.watch())
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
   list.length(events) |> should.equal(200)
   // Each event is a single Write (mtime changed).
   list.all(events, fn(ev) { ops_of(ev) == [Write] }) |> should.equal(True)

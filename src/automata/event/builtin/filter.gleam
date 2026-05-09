@@ -1,8 +1,8 @@
 import automata/event/builtin/body.{type EventBody, type ScheduleKind}
 import automata/event/filter.{type Filter}
-import automata/fsnotify/ast.{type Op}
-import automata/fsnotify/event as fs_event
-import automata/fsnotify/path as fs_path
+import automata/fsevent/ast.{type Op}
+import automata/fsevent/event as fs_event
+import automata/fsevent/path as fs_path
 import gleam/string
 
 /// Match any event whose body is `Scheduled(_, _, _)`.

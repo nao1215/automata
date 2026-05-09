@@ -1,5 +1,5 @@
-import automata/fsnotify/ast.{type Op}
-import automata/fsnotify/op
+import automata/fsevent/ast.{type Op}
+import automata/fsevent/op
 import gleam/set.{type Set}
 
 /// Subscription specification handed to `diff/3`.
