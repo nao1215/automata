@@ -161,3 +161,185 @@ pub fn valid_cron_accessors_expose_selectors_test() {
   cron_validator.day_of_week(spec)
   |> should.equal(cron_validator.Any)
 }
+
+pub fn parse_rejects_empty_input_test() {
+  cron.parse("")
+  |> should.equal(Error(cron_parser.InvalidExpression(value: "")))
+}
+
+pub fn parse_rejects_too_few_fields_test() {
+  cron.parse("0 0 * *")
+  |> should.equal(Error(cron_parser.InvalidFieldCount(expected: 5, actual: 4)))
+}
+
+pub fn parse_collapses_consecutive_whitespace_test() {
+  // Multiple spaces are treated as a single separator; this should
+  // succeed rather than produce an `EmptyField` error.
+  cron.parse("0  *   *  *  *")
+  |> should.equal(
+    Ok(cron_ast.RawCron(
+      minute: "0",
+      hour: "*",
+      day_of_month: "*",
+      month: "*",
+      day_of_week: "*",
+    )),
+  )
+}
+
+pub fn validate_accepts_month_aliases_test() {
+  let spec = parse_and_validate("0 0 1 JAN *")
+
+  cron_validator.month(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(1)]))
+}
+
+pub fn validate_accepts_lowercase_month_aliases_test() {
+  let spec = parse_and_validate("0 0 1 dec *")
+
+  cron_validator.month(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(12)]))
+}
+
+pub fn validate_accepts_day_of_week_aliases_test() {
+  let spec = parse_and_validate("0 0 * * SUN")
+
+  cron_validator.day_of_week(spec)
+  |> should.equal(cron_validator.Values([cron_validator.Exact(0)]))
+}
+
+pub fn validate_rejects_unknown_alias_test() {
+  let assert Ok(raw) = cron.parse("0 0 * * FOO")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidAlias(field: cron_ast.DayOfWeek, value: "FOO")),
+  )
+}
+
+pub fn validate_rejects_alias_in_numeric_field_test() {
+  let assert Ok(raw) = cron.parse("JAN 0 * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidNumber(field: cron_ast.Minute, value: "JAN")),
+  )
+}
+
+pub fn validate_rejects_unsupported_syntax_test() {
+  let assert Ok(raw) = cron.parse("0 0 L * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.UnsupportedSyntax(
+      field: cron_ast.DayOfMonth,
+      value: "L",
+    )),
+  )
+}
+
+pub fn validate_rejects_zero_step_test() {
+  let assert Ok(raw) = cron.parse("*/0 * * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidStep(field: cron_ast.Minute, value: "*/0")),
+  )
+}
+
+pub fn validate_rejects_reversed_range_test() {
+  let assert Ok(raw) = cron.parse("0 17-9 * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidRange(field: cron_ast.Hour, value: "17-9")),
+  )
+}
+
+pub fn validate_rejects_empty_list_item_test() {
+  let assert Ok(raw) = cron.parse("0,, * * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.Minute, value: "0,,")),
+  )
+}
+
+pub fn day_of_week_normalizes_seven_to_zero_test() {
+  // 0 and 7 both mean Sunday in UNIX cron; the normalised set must
+  // contain a single 0.
+  let spec = parse_and_validate("0 0 * * 0,7")
+
+  cron_validator.selector_values(
+    cron_validator.day_of_week(spec),
+    0,
+    6,
+    normalize_day_of_week: True,
+  )
+  |> should.equal([0])
+}
+
+pub fn day_of_week_seven_alone_normalizes_to_zero_test() {
+  let spec = parse_and_validate("0 0 * * 7")
+
+  cron_validator.selector_values(
+    cron_validator.day_of_week(spec),
+    0,
+    6,
+    normalize_day_of_week: True,
+  )
+  |> should.equal([0])
+}
+
+pub fn matches_step_with_offset_test() {
+  // 5/15 means: starting at 5, every 15. Concretely: 5, 20, 35, 50.
+  let spec = parse_and_validate("5/15 * * * *")
+
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 5, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 20, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 35, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 50, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 0, 0)) |> should.equal(False)
+}
+
+pub fn matches_range_step_test() {
+  // 9-17/2 means: 9, 11, 13, 15, 17.
+  let spec = parse_and_validate("0 9-17/2 * * *")
+
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 0, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 13, 0, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 17, 0, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 10, 0, 0)) |> should.equal(False)
+}
+
+pub fn matches_dom_dow_or_semantics_test() {
+  // UNIX cron: when both DOM and DOW are restricted, a date matches
+  // if either constraint is satisfied (OR, not AND). 4/31 is itself
+  // impossible, but 4 month + Monday DOW must still produce hits.
+  let spec = parse_and_validate("0 0 31 4 1")
+
+  cron.matches(spec, at: vdt(2026, 4, 6, 0, 0, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 4, 5, 0, 0, 0)) |> should.equal(False)
+}
+
+pub fn builder_every_from_round_trips_test() {
+  cron.builder()
+  |> cron.with_minute(cron.every_from(start: 5, step: 15))
+  |> cron.with_hour(cron.any())
+  |> cron.with_day_of_month(cron.any())
+  |> cron.with_month(cron.any())
+  |> cron.with_day_of_week(cron.any())
+  |> cron.build
+  |> should.equal(Ok(parse_and_validate("5/15 * * * *")))
+}
+
+pub fn builder_every_between_round_trips_test() {
+  cron.builder()
+  |> cron.with_minute(cron.at(value: 0))
+  |> cron.with_hour(cron.every_between(from: 9, to: 17, step: 2))
+  |> cron.with_day_of_month(cron.any())
+  |> cron.with_month(cron.any())
+  |> cron.with_day_of_week(cron.any())
+  |> cron.build
+  |> should.equal(Ok(parse_and_validate("0 9-17/2 * * *")))
+}
