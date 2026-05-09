@@ -28,12 +28,11 @@ pub fn normalize(path path: String) -> Result(NormalizedPath, FseventError) {
         True -> Error(PathContainsNullByte(path: path))
         False -> {
           let unified = string.replace(path, "\\", "/")
-          let absolute = string.starts_with(unified, "/")
           let raw_segments = string.split(unified, "/")
           let segments = list.filter(raw_segments, fn(s) { s != "" })
           case validate_segments(path, segments) {
             Error(error) -> Error(error)
-            Ok(_) -> Ok(build(absolute, segments, path))
+            Ok(_) -> Ok(build(unified, segments))
           }
         }
       }
@@ -50,10 +49,10 @@ pub fn path_segments(path path: NormalizedPath) -> List(String) {
   path.segments
 }
 
-/// `True` when the path begins with a leading separator after
-/// normalisation. Paths normalised from `C:\foo` are treated as
-/// absolute because `C:` becomes the first segment of an absolute
-/// path; paths normalised from `\\srv\share` are likewise absolute.
+/// `True` when the path is rooted: it either begins with a leading
+/// separator after normalisation (`/foo`, `\\srv\share` → `//srv/share`)
+/// or its first segment is a Windows drive letter (`C:\foo` → first
+/// segment `C:`). Relative paths return `False`.
 pub fn path_is_absolute(path path: NormalizedPath) -> Bool {
   path.absolute
 }
@@ -109,16 +108,78 @@ fn validate_segments(
   }
 }
 
-fn build(
-  absolute: Bool,
-  segments: List(String),
-  original: String,
-) -> NormalizedPath {
+fn starts_with_drive_letter(segments: List(String)) -> Bool {
+  case segments {
+    [first, ..] -> is_drive_letter(first)
+    [] -> False
+  }
+}
+
+fn is_drive_letter(segment: String) -> Bool {
+  case segment {
+    "A:"
+    | "B:"
+    | "C:"
+    | "D:"
+    | "E:"
+    | "F:"
+    | "G:"
+    | "H:"
+    | "I:"
+    | "J:"
+    | "K:"
+    | "L:"
+    | "M:"
+    | "N:"
+    | "O:"
+    | "P:"
+    | "Q:"
+    | "R:"
+    | "S:"
+    | "T:"
+    | "U:"
+    | "V:"
+    | "W:"
+    | "X:"
+    | "Y:"
+    | "Z:" -> True
+    "a:"
+    | "b:"
+    | "c:"
+    | "d:"
+    | "e:"
+    | "f:"
+    | "g:"
+    | "h:"
+    | "i:"
+    | "j:"
+    | "k:"
+    | "l:"
+    | "m:"
+    | "n:"
+    | "o:"
+    | "p:"
+    | "q:"
+    | "r:"
+    | "s:"
+    | "t:"
+    | "u:"
+    | "v:"
+    | "w:"
+    | "x:"
+    | "y:"
+    | "z:" -> True
+    _ -> False
+  }
+}
+
+fn build(unified: String, segments: List(String)) -> NormalizedPath {
   let joined = string.join(segments, "/")
-  let value = case absolute, joined {
+  let slash_prefix = string.starts_with(unified, "/")
+  let absolute = slash_prefix || starts_with_drive_letter(segments)
+  let value = case slash_prefix, joined {
     True, "" -> "/"
     True, _ -> "/" <> joined
-    False, "" -> original
     False, _ -> joined
   }
   NormalizedPath(value: value, segments: segments, absolute: absolute)

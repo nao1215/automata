@@ -82,6 +82,24 @@ pub fn normalize_drive_letter_test() {
   let p = ok("C:\\Users\\Public")
   path.path_to_string(p) |> should.equal("C:/Users/Public")
   path.path_segments(p) |> should.equal(["C:", "Users", "Public"])
+  path.path_is_absolute(p) |> should.equal(True)
+}
+
+pub fn normalize_lowercase_drive_letter_is_absolute_test() {
+  let p = ok("c:/temp")
+  path.path_is_absolute(p) |> should.equal(True)
+}
+
+pub fn normalize_non_drive_letter_first_segment_is_relative_test() {
+  // "1:foo" looks like a drive letter but the prefix is not a letter,
+  // so the path stays relative.
+  let p = ok("1:foo")
+  path.path_is_absolute(p) |> should.equal(False)
+}
+
+pub fn normalize_relative_path_is_not_absolute_test() {
+  let p = ok("foo/bar")
+  path.path_is_absolute(p) |> should.equal(False)
 }
 
 pub fn normalize_unc_path_test() {
