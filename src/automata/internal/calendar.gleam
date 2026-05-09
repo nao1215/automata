@@ -167,6 +167,45 @@ pub fn day_of_week_number(datetime: DateTime) -> Int {
   }
 }
 
+pub fn days_since_epoch(date: Date) -> Int {
+  let previous = date.year - 1
+  let leap_days =
+    quotient(previous, 4) - quotient(previous, 100) + quotient(previous, 400)
+  let days_before_year = previous * 365 + leap_days
+  days_before_year + days_before_month(date.year, date.month) + date.day
+}
+
+pub fn datetime_to_seconds(datetime: DateTime) -> Int {
+  days_since_epoch(datetime.date)
+  * 86_400
+  + datetime.time.hour
+  * 3600
+  + datetime.time.minute
+  * 60
+  + datetime.time.second
+}
+
+pub fn seconds_between(from: DateTime, to: DateTime) -> Int {
+  datetime_to_seconds(to) - datetime_to_seconds(from)
+}
+
+fn days_before_month(year: Int, month: Int) -> Int {
+  days_before_month_loop(year, month, 1, 0)
+}
+
+fn days_before_month_loop(year: Int, target: Int, month: Int, acc: Int) -> Int {
+  case month >= target {
+    True -> acc
+    False ->
+      days_before_month_loop(
+        year,
+        target,
+        month + 1,
+        acc + days_in_month(year, month),
+      )
+  }
+}
+
 pub fn add_minutes(datetime: DateTime, minutes: Int) -> DateTime {
   case minutes == 0 {
     True -> datetime
