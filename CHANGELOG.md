@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
+- README now has an `## Automaton` section with a runnable
+  three-state door FSM example (`Closed` / `Open` / `Locked` plus
+  `OpenIt` / `CloseIt` / `LockIt` / `UnlockIt`). Every other module
+  in the Features list (`cron`, `rrule`, `schedule`, `event`,
+  `fsevent`, `retry`) had a code block; the vanilla FSM helper —
+  the very first feature listed — was the one module without one.
+  The new section also notes that `Automaton(state, symbol)` is
+  generic over both type parameters and that, unlike `cron.builder`
+  / `rrule.builder`, the FSM helper has no builder layer —
+  `automata.new` is the single entry point. (#16)
 - `automata/cron.next_after/2` and `automata/cron.next_after_plan/2`
   now document when `None` can actually be returned. UNIX cron is
   non-terminating, so for typical inputs `None` is unreachable —

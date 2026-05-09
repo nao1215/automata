@@ -26,6 +26,64 @@ BEAM and on the JavaScript target.
 gleam add automata
 ```
 
+## Automaton
+
+The vanilla `automata` module is a deterministic finite automaton
+helper: a current state, a pure transition function, and an
+acceptance predicate. Construct one with `automata.new`, advance it
+with `step` / `run`, and ask `accepts` whether the input is in the
+language.
+
+```gleam
+import automata
+import gleam/io
+
+pub type Door {
+  Closed
+  Open
+  Locked
+}
+
+pub type Action {
+  OpenIt
+  CloseIt
+  LockIt
+  UnlockIt
+}
+
+fn transition(state: Door, action: Action) -> Door {
+  case state, action {
+    Closed, OpenIt -> Open
+    Open, CloseIt -> Closed
+    Closed, LockIt -> Locked
+    Locked, UnlockIt -> Closed
+    other, _ -> other
+  }
+}
+
+pub fn main() {
+  let dfa =
+    automata.new(
+      initial_state: Closed,
+      transition: transition,
+      accepting: fn(state) { state == Open },
+    )
+
+  automata.run(dfa, [OpenIt, CloseIt, LockIt]) |> io.debug
+  // -> Locked
+
+  automata.accepts(dfa, [OpenIt]) |> io.debug
+  // -> True
+}
+```
+
+`Automaton(state, symbol)` is generic over both the state and symbol
+types, so the transition function can pattern-match on whatever your
+domain actually looks like (`type Door`, `type LifecycleStage`,
+`Int`, `String`, etc.). Unlike `cron.builder` / `rrule.builder`, the
+FSM helper has no builder layer — `automata.new` is the single
+entry point, and the transition function does the work.
+
 ## Cron
 
 ```gleam
