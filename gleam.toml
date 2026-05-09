@@ -1,0 +1,39 @@
+name = "automata"
+version = "0.1.0"
+description = "Finite automata helpers for Gleam"
+licences = ["MIT"]
+repository = { type = "github", user = "nao1215", repo = "automata" }
+links = [
+  { title = "Repository", href = "https://github.com/nao1215/automata" },
+  { title = "Changelog", href = "https://github.com/nao1215/automata/blob/main/CHANGELOG.md" },
+]
+gleam = ">= 1.15.0"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+glinter = ">= 2.14.0 and < 3.0.0"
+
+[tools.glinter]
+warnings_as_errors = true
+include = ["src/", "test/"]
+
+[tools.glinter.rules]
+label_possible = "off"
+prefer_guard_clause = "off"
+
+[tools.glinter.ignore]
+"test/**/*.gleam" = [
+  "assert_ok_pattern",
+  "missing_type_annotation",
+  "short_variable_name",
+  "unused_exports",
+]
+"src/automata/cron.gleam" = [
+  "deep_nesting",
+  "missing_labels",
+  "thrown_away_error",
+  "unused_exports",
+]
