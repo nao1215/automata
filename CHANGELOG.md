@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- `automata/cron.next_after/2` and `automata/cron.next_after_plan/2`
+  now document when `None` can actually be returned. UNIX cron is
+  non-terminating, so for typical inputs `None` is unreachable —
+  the `Option` shape is preserved only for the internal recursion
+  guard (~5,000,000 candidate minute steps) and the
+  maximum-representable-`ValidDateTime` boundary. The doc-comment
+  also calls out the asymmetry with RRULE's `next_after` (whose
+  `Option` is real because a `COUNT=N` rule legitimately exhausts).
+  `automata/cron/iterator.Step` gains the same note on its `Done`
+  variant. (#17)
+
 ### Added
 
 - `automata/cron.parse` now accepts the Vixie cron nickname aliases
