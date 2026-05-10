@@ -400,6 +400,51 @@ pub fn validate_rejects_empty_list_item_test() {
   )
 }
 
+pub fn validate_rejects_bare_comma_in_minute_test() {
+  let assert Ok(raw) = cron.parse(", * * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.Minute, value: ",")),
+  )
+}
+
+pub fn validate_rejects_bare_comma_in_hour_test() {
+  let assert Ok(raw) = cron.parse("* , * * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.Hour, value: ",")),
+  )
+}
+
+pub fn validate_rejects_bare_comma_in_day_of_month_test() {
+  let assert Ok(raw) = cron.parse("* * , * *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.DayOfMonth, value: ",")),
+  )
+}
+
+pub fn validate_rejects_bare_comma_in_month_test() {
+  let assert Ok(raw) = cron.parse("* * * , *")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.Month, value: ",")),
+  )
+}
+
+pub fn validate_rejects_bare_comma_in_day_of_week_test() {
+  let assert Ok(raw) = cron.parse("* * * * ,")
+
+  cron.validate(raw)
+  |> should.equal(
+    Error(cron_validator.InvalidList(field: cron_ast.DayOfWeek, value: ",")),
+  )
+}
+
 pub fn day_of_week_normalizes_seven_to_zero_test() {
   // 0 and 7 both mean Sunday in UNIX cron; the normalised set must
   // contain a single 0.
