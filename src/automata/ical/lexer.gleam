@@ -45,7 +45,7 @@ pub fn unfold(input: String) -> Result(List(LogicalLine), LexError) {
 
 fn strip_bom(input: String) -> String {
   case string.starts_with(input, "\u{FEFF}") {
-    True -> string.drop_start(input, 1)
+    True -> string.replace(input, "\u{FEFF}", "")
     False -> input
   }
 }
