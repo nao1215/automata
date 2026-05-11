@@ -30,6 +30,7 @@ prefer_guard_clause = "off"
   "assert_ok_pattern",
   "missing_type_annotation",
   "short_variable_name",
+  "thrown_away_error",
   "unused_exports",
 ]
 "src/automata/cron.gleam" = [
@@ -88,4 +89,27 @@ prefer_guard_clause = "off"
   "unused_exports",
   "thrown_away_error",
   "deep_nesting",
+]
+"src/automata/ical.gleam" = ["unused_exports"]
+"src/automata/ical/ast.gleam" = ["unused_exports"]
+"src/automata/ical/lexer.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/ical/parser.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/ical/validator.gleam" = [
+  "deep_nesting",
+  "thrown_away_error",
+  "unused_exports",
+]
+"src/automata/ical/emitter.gleam" = [
+  "deep_nesting",
+  "short_variable_name",
+  "thrown_away_error",
+  "unused_exports",
 ]

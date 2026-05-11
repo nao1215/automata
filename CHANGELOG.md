@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `automata/ical` — RFC 5545 iCalendar parser and emitter that
+  wraps the existing `automata/rrule`. Parses VCALENDAR /
+  VEVENT / VTODO / VJOURNAL / VFREEBUSY / VTIMEZONE / VALARM
+  blocks, with §3.1 line folding (CRLF/LF tolerant input,
+  CRLF output, 75-octet UTF-8 boundary on emit), §3.2 quoted
+  parameter values, §3.3.11 TEXT escaping (`\\`, `\,`, `\;`,
+  `\n`/`\N`), and §3.4 content-line layout. RRULE values are
+  preserved as `automata/rrule.RawRRule` so callers can pipe
+  them through `rrule.validate` for semantic checks —
+  `IcalError.InvalidRRule` wraps the syntactic
+  `rrule/parser.ParseError`. Opaque `Calendar` / `Event` /
+  `Todo` / `Journal` / `FreeBusy` / `Timezone` / `Alarm`
+  types are usable as both parse results and builder targets
+  (`new_calendar`, `add_event`, `new_event`, `with_summary`,
+  `with_dtstart`, `with_rrule`, `with_attendee`, ...). Unknown
+  component kinds round-trip through `UnknownComponent`
+  rather than being dropped. Pure data, same results on BEAM
+  and the JavaScript target. (#27)
+
 ## [0.4.0] - 2026-05-09
 
 ### Documentation

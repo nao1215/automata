@@ -15,6 +15,7 @@ BEAM and on the JavaScript target.
 - `automata` — deterministic finite automaton helper.
 - `automata/cron` — UNIX 5-field cron with separate parse, validate, normalise, match, iterate, and next phases.
 - `automata/rrule` — RFC 5545 RRULE subset (FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH, BYMONTHDAY, BYHOUR, BYMINUTE) anchored on a `ValidDateTime`.
+- `automata/ical` — RFC 5545 iCalendar parser and emitter for the `VCALENDAR` envelope around `automata/rrule`, with line folding, parameter quoting, and TEXT escaping.
 - `automata/schedule` — one matcher / iterator / next-after API across compiled cron, RRULE, fixed-interval, and one-shot schedules.
 - `automata/event` — typed `Event(body)` values with source kinds, correlation / causation / trace metadata, and filter / match combinators.
 - `automata/fsevent` — fsnotify-style Create / Write / Remove / Rename / Chmod ops derived from two filesystem snapshots, with file_id-based rename detection.
@@ -168,6 +169,51 @@ Anchor seconds are preserved end-to-end. `BYSECOND`, `BYYEARDAY`,
 not in the supported subset. `rrule.normalize/2` returns an
 `RRulePlan` for use with `rrule.matches_plan` / `iterator_after_plan`
 / `next_after_plan` when you reuse the same spec/anchor pair.
+
+## iCalendar
+
+`automata/ical` is an RFC 5545 parser and emitter built on top of
+`automata/rrule`. It handles the surrounding `VCALENDAR` envelope
+that RRULE almost always ships inside, with line folding,
+parameter quoting, and TEXT escaping handled per §3.1, §3.2, and
+§3.3.11.
+
+```gleam
+import automata/ical
+import gleam/io
+import gleam/list
+import gleam/option
+
+pub fn main() {
+  let feed =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//example//EN\r\n"
+    <> "BEGIN:VEVENT\r\nUID:abc@example.com\r\n"
+    <> "DTSTAMP:20260511T000000Z\r\nDTSTART:20260511T130000\r\n"
+    <> "SUMMARY:Coffee\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+  let assert Ok(cal) = ical.parse(feed)
+
+  ical.events(cal)
+  |> list.map(ical.event_summary)
+  |> list.map(option.unwrap(_, ""))
+  |> io.debug
+  // -> ["Coffee"]
+}
+```
+
+`event_rrule(event)` returns `Option(RawRRule)` straight from
+`automata/rrule`, so recurrence rules compose without re-parsing:
+
+```gleam
+case ical.event_rrule(event) {
+  option.Some(raw) -> rrule.validate(raw: raw)
+  option.None -> Error(Nil)
+}
+```
+
+`ical.parse |> ical.encode |> ical.parse` is stable: parsing an
+emitted calendar yields the same property set. Output folds at 75
+UTF-8 octets and uses CRLF line terminators per RFC 5545.
 
 ## Schedule
 
