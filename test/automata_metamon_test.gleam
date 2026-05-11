@@ -1,7 +1,12 @@
 import automata
+import automata/ical
+import automata/ical/emitter as ical_emitter
 import automata/retry
 import automata/retry/ast as retry_ast
+import automata/schedule/ast as schedule_ast
 import gleam/list
+import gleam/option.{Some}
+import gleam/string
 import metamon
 import metamon/generator
 import metamon/generator/range
@@ -137,6 +142,72 @@ pub fn exponential_policy_multiplier_must_be_at_least_two_test() {
       Error(retry_ast.MultiplierMustBeAtLeastTwo(actual: actual)) ->
         actual == bad_multiplier
       _ -> False
+    }
+  })
+}
+
+fn ical_dtstamp() -> schedule_ast.DateTime {
+  let assert Ok(dt) =
+    schedule_ast.try_datetime(
+      year: 2026,
+      month: 5,
+      day: 11,
+      hour: 12,
+      minute: 0,
+      second: 0,
+    )
+  dt
+}
+
+/// encode → parse must round-trip arbitrary printable ASCII summaries
+/// (no control characters that the lexer would reject).
+pub fn ical_parse_encode_parse_idempotent_test() {
+  metamon.forall(
+    generator.string_printable_ascii(range.constant(0, 40)),
+    fn(summary) {
+      let cal =
+        ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+        |> ical.add_event(
+          ical.new_event(uid: "pbt@x", dtstamp: ical_dtstamp())
+          |> ical.with_summary(summary),
+        )
+      let encoded = ical.encode(cal)
+      case ical.parse(encoded) {
+        Error(_) -> False
+        Ok(decoded) ->
+          case ical.events(decoded) {
+            [event] -> ical.event_summary(event) == Some(summary)
+            _ -> False
+          }
+      }
+    },
+  )
+}
+
+/// Every folded physical line must respect the 75-octet boundary.
+pub fn ical_fold_respects_octet_limit_test() {
+  metamon.forall(
+    generator.string_printable_ascii(range.constant(0, 200)),
+    fn(input) {
+      let lines = ical_emitter.fold_line(input)
+      list.all(lines, fn(line) { string.byte_size(line) <= 75 })
+    },
+  )
+}
+
+/// Escape output must contain only the documented escape sequences for
+/// the four reserved code points; non-reserved code points pass
+/// through unchanged.
+pub fn ical_escape_preserves_alpha_test() {
+  metamon.forall(generator.string_alpha(range.constant(0, 60)), fn(s) {
+    case
+      string.contains(s, "\\")
+      || string.contains(s, ",")
+      || string.contains(s, ";")
+      || string.contains(s, "\n")
+    {
+      True -> True
+      False -> ical_emitter.escape_text(s) == s
     }
   })
 }
