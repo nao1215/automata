@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-11
+
 ### Added
 
 - `automata/ical` — RFC 5545 iCalendar parser and emitter that
