@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `automata/cron`: `cron.next_after` and `cron.iterator_after` no
+  longer skip a year when both `month` and `day_of_month` are fixed
+  constants and the anchor falls after the cron's day-of-month in
+  some later month (e.g. `"0 0 1 1 *"` anchored at `2026-12-15`
+  used to yield `2028-01-01` instead of `2027-01-01`). The
+  month-roll inside the iterator now resets day-of-month to 1 when
+  crossing into the next matching month, so the day-search starts
+  from the beginning of that month. The same root cause also
+  affected fixed-month + wildcard-day specs that landed past day 1
+  on the anchor. (#30)
+
 ## [0.5.0] - 2026-05-11
 
 ### Added
