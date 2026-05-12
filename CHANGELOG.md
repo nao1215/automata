@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-12
+
 ### Fixed
 
 - `automata/cron`: `cron.next_after` and `cron.iterator_after` no
