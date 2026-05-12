@@ -179,7 +179,13 @@ fn next_hour_start(candidate: DateTime) -> DateTime {
 }
 
 fn roll_to_next_matching_month(plan: CronPlan, candidate: DateTime) -> DateTime {
-  let next = calendar.next_month(candidate)
+  // Reset to day 1 of the next month so the day-search inside
+  // `find_next` can scan from the start of that month. Carrying the
+  // current `candidate.date.day` across the month boundary would skip
+  // every occurrence whose day-of-month is earlier than the anchor's
+  // day-of-month — most visibly causing a +1-year jump for cron specs
+  // that fix both `month` and `day_of_month` (e.g. `0 0 1 1 *`).
+  let next = calendar.set_day(calendar.next_month(candidate), 1)
 
   case evaluator.int_set_contains(plan.month, next.date.month) {
     True -> next

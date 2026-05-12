@@ -238,6 +238,50 @@ pub fn next_after_is_exclusive_test() {
   |> should.equal(Some(vdt(2027, 1, 1, 0, 0, 0)))
 }
 
+// Regression for the year-wrap off-by-one in #30: when the cron spec
+// fixes both month and day-of-month and the anchor falls after that
+// day in some later month, the month-roll used to carry the anchor's
+// day across the boundary, causing `find_next` to scan past day 1 of
+// the matching month and land an extra year out.
+pub fn next_after_fixed_month_and_day_wraps_year_test() {
+  cron.next_after(
+    parse_and_validate("0 0 1 1 *"),
+    after: vdt(2026, 12, 15, 0, 0, 0),
+  )
+  |> should.equal(Some(vdt(2027, 1, 1, 0, 0, 0)))
+}
+
+pub fn next_after_fixed_month_and_day_mid_year_test() {
+  cron.next_after(
+    parse_and_validate("0 0 15 6 *"),
+    after: vdt(2026, 12, 31, 0, 0, 0),
+  )
+  |> should.equal(Some(vdt(2027, 6, 15, 0, 0, 0)))
+}
+
+// The same root cause also affected fixed-month + wildcard-day specs:
+// crossing the month boundary while preserving the anchor day meant
+// the iterator missed every earlier day of the new matching month.
+pub fn next_after_fixed_month_wildcard_day_starts_at_day_one_test() {
+  cron.next_after(
+    parse_and_validate("0 0 * 6 *"),
+    after: vdt(2026, 12, 31, 0, 0, 0),
+  )
+  |> should.equal(Some(vdt(2027, 6, 1, 0, 0, 0)))
+}
+
+pub fn iterator_after_fixed_month_and_day_wraps_year_test() {
+  let spec = parse_and_validate("0 0 1 1 *")
+
+  let assert cron_iterator.Yield(first_at, _) =
+    cron_iterator.step(cron.iterator_after(
+      spec,
+      boundary: schedule_ast.Exclusive(vdt(2026, 12, 15, 0, 0, 0)),
+    ))
+
+  first_at |> should.equal(vdt(2027, 1, 1, 0, 0, 0))
+}
+
 pub fn valid_cron_accessors_expose_selectors_test() {
   let spec = parse_and_validate("0 0 1 1 *")
 
