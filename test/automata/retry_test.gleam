@@ -68,6 +68,79 @@ pub fn capped_exponential_rejects_cap_below_initial_test() {
   )
 }
 
+pub fn capped_exponential_ms_matches_manual_construction_test() {
+  let assert Ok(via_ms) =
+    retry.capped_exponential_ms(
+      initial_ms: 50,
+      multiplier: 2,
+      cap_ms: 1000,
+      max_attempts: 5,
+    )
+  let assert Ok(via_duration) =
+    retry.capped_exponential(
+      initial: ms(50),
+      multiplier: 2,
+      cap: ms(1000),
+      max_attempts: 5,
+    )
+  via_ms |> should.equal(via_duration)
+}
+
+pub fn capped_exponential_ms_rejects_negative_initial_test() {
+  retry.capped_exponential_ms(
+    initial_ms: -1,
+    multiplier: 2,
+    cap_ms: 1000,
+    max_attempts: 5,
+  )
+  |> should.equal(Error(ast.NegativeDuration(unit: "milliseconds", actual: -1)))
+}
+
+pub fn capped_exponential_ms_rejects_negative_cap_test() {
+  retry.capped_exponential_ms(
+    initial_ms: 50,
+    multiplier: 2,
+    cap_ms: -1,
+    max_attempts: 5,
+  )
+  |> should.equal(Error(ast.NegativeDuration(unit: "milliseconds", actual: -1)))
+}
+
+pub fn capped_exponential_ms_rejects_cap_below_initial_test() {
+  retry.capped_exponential_ms(
+    initial_ms: 200,
+    multiplier: 2,
+    cap_ms: 100,
+    max_attempts: 5,
+  )
+  |> should.equal(
+    Error(ast.CapMustNotBeLessThanInitial(
+      cap_milliseconds: 100,
+      initial_milliseconds: 200,
+    )),
+  )
+}
+
+pub fn capped_exponential_ms_rejects_multiplier_below_two_test() {
+  retry.capped_exponential_ms(
+    initial_ms: 50,
+    multiplier: 1,
+    cap_ms: 1000,
+    max_attempts: 5,
+  )
+  |> should.equal(Error(ast.MultiplierMustBeAtLeastTwo(actual: 1)))
+}
+
+pub fn capped_exponential_ms_rejects_zero_max_attempts_test() {
+  retry.capped_exponential_ms(
+    initial_ms: 50,
+    multiplier: 2,
+    cap_ms: 1000,
+    max_attempts: 0,
+  )
+  |> should.equal(Error(ast.MaxAttemptsMustBePositive(actual: 0)))
+}
+
 pub fn no_retry_refuses_transient_failure_test() {
   let ctx = retry.start(policy: retry.no_retry(), seed: 1)
 
