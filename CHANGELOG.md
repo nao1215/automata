@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-16
+
 ### Added
 
 - `automata/cron`: `cron.next_after_string(expr, at)` one-call facade that parses, validates, and evaluates the next firing in a single step, plus a `cron.CronError` sum type wrapping `parser.ParseError` and `validator.ValidationError`. Useful when a caller already holds a cron expression as a string and a `ValidDateTime` — the previous code path required three result/option unwraps and crossed two modules. Power users that evaluate the same expression many times keep using `parse` / `validate` / `normalize` and the `*_plan` family. (#33)
