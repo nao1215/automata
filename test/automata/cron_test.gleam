@@ -567,3 +567,33 @@ pub fn builder_every_between_round_trips_test() {
   |> cron.build
   |> should.equal(Ok(parse_and_validate("0 9-17/2 * * *")))
 }
+
+pub fn next_after_string_returns_next_occurrence_test() {
+  cron.next_after_string(expr: "0 9 * * 1", at: vdt(2026, 5, 11, 8, 0, 0))
+  |> should.equal(Ok(Some(vdt(2026, 5, 11, 9, 0, 0))))
+}
+
+pub fn next_after_string_matches_manual_pipeline_test() {
+  let expr = "*/15 9-17 * * MON-FRI"
+  let at = vdt(2026, 5, 11, 9, 7, 0)
+  let manual =
+    parse_and_validate(expr)
+    |> cron.next_after(after: at)
+
+  cron.next_after_string(expr: expr, at: at)
+  |> should.equal(Ok(manual))
+}
+
+pub fn next_after_string_reports_parse_error_test() {
+  cron.next_after_string(expr: "0 0 * *", at: vdt(2026, 5, 11, 0, 0, 0))
+  |> should.equal(
+    Error(
+      cron.ParseError(cron_parser.InvalidFieldCount(expected: 5, actual: 4)),
+    ),
+  )
+}
+
+pub fn next_after_string_reports_validation_error_test() {
+  let assert Error(cron.ValidationError(_)) =
+    cron.next_after_string(expr: "60 0 * * *", at: vdt(2026, 5, 11, 0, 0, 0))
+}
