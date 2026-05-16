@@ -7,6 +7,7 @@ import automata/retry/ast.{
 }
 import automata/retry/internal/prng.{type PrngState}
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 /// A retry policy: pure data describing *how* to retry a failed
 /// operation without itself performing any I/O.
@@ -128,6 +129,38 @@ pub fn capped_exponential(
           ))
       }
   }
+}
+
+/// Build a capped exponential policy directly from raw millisecond
+/// integers, skipping the explicit `ast.from_milliseconds` calls that
+/// `capped_exponential/4` would otherwise require. Useful when both
+/// the initial delay and the cap are compile-time literals — the
+/// common case at a call site.
+///
+/// Validation runs in the same order as `capped_exponential/4`: the
+/// `initial_ms` duration is constructed first, then `cap_ms`, then the
+/// underlying `capped_exponential` validates `multiplier`, `max_attempts`,
+/// and the `cap >= initial` invariant. A bad value at any step short-
+/// circuits with the corresponding `RetryError`.
+///
+/// Callers that already hold runtime-derived `Duration` values (for
+/// example, from a config parser that ran `ast.from_minutes`) should
+/// keep using `capped_exponential/4` and pass the values through
+/// unchanged.
+pub fn capped_exponential_ms(
+  initial_ms initial_ms: Int,
+  multiplier multiplier: Int,
+  cap_ms cap_ms: Int,
+  max_attempts max_attempts: Int,
+) -> Result(Policy, RetryError) {
+  use initial <- result.try(ast.from_milliseconds(milliseconds: initial_ms))
+  use cap <- result.try(ast.from_milliseconds(milliseconds: cap_ms))
+  capped_exponential(
+    initial: initial,
+    multiplier: multiplier,
+    cap: cap,
+    max_attempts: max_attempts,
+  )
 }
 
 /// Decorate an existing policy with a jitter strategy.

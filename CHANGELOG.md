@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `automata/cron`: `cron.next_after_string(expr, at)` one-call facade that parses, validates, and evaluates the next firing in a single step, plus a `cron.CronError` sum type wrapping `parser.ParseError` and `validator.ValidationError`. Useful when a caller already holds a cron expression as a string and a `ValidDateTime` — the previous code path required three result/option unwraps and crossed two modules. Power users that evaluate the same expression many times keep using `parse` / `validate` / `normalize` and the `*_plan` family. (#33)
+- `automata/retry`: `retry.capped_exponential_ms(initial_ms, multiplier, cap_ms, max_attempts)` direct constructor that accepts raw millisecond integers and skips the explicit `ast.from_milliseconds` calls at the call site. Useful when the initial delay and cap are compile-time literals — the previous code path required two `Result(Duration, _)` unwraps before the policy could be built. Callers that hold runtime-derived `Duration` values (for example, from a config parser) keep using `capped_exponential/4` unchanged. (#34)
 
 ## [0.6.0] - 2026-05-12
 
