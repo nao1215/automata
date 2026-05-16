@@ -15,6 +15,17 @@ import automata/cron/parser
 import automata/cron/validator
 import automata/schedule/ast.{type Boundary, type ValidDateTime} as schedule_ast
 import gleam/option.{type Option}
+import gleam/result
+
+/// Wrapper error type for `next_after_string` and other facade helpers
+/// that combine the `parse` / `validate` phases into a single call.
+/// Power users that need to distinguish syntactic from semantic problems
+/// can keep using `parse` / `validate` directly and receive the
+/// underlying `parser.ParseError` / `validator.ValidationError`.
+pub type CronError {
+  ParseError(parser.ParseError)
+  ValidationError(validator.ValidationError)
+}
 
 /// Parse a UNIX 5-field cron expression (`minute hour day-of-month
 /// month day-of-week`) into a `RawCron` AST. Returns a `ParseError`
@@ -91,6 +102,34 @@ pub fn next_after(
   spec
   |> cron_normalize.normalize
   |> next_after_plan(after: after)
+}
+
+/// Parse, validate, and call `next_after/2` in a single step.
+///
+/// Equivalent to:
+///
+/// ```gleam
+/// use raw <- result.try(cron.parse(expr) |> result.map_error(ParseError))
+/// use spec <- result.try(cron.validate(raw) |> result.map_error(ValidationError))
+/// Ok(cron.next_after(spec, after: at))
+/// ```
+///
+/// Useful when the caller already holds a cron expression as a string
+/// and a `ValidDateTime` and just wants the next firing — the common
+/// "from a literal" path. Callers that evaluate the same expression
+/// many times should keep using `parse` / `validate` / `normalize`
+/// and the `*_plan` family to pay those costs once.
+///
+/// The `Option` in the success case has the same semantics as
+/// `next_after/2`; see that function's doc-comment for the (very
+/// narrow) cases where it can be `None`.
+pub fn next_after_string(
+  expr expr: String,
+  at at: ValidDateTime,
+) -> Result(Option(ValidDateTime), CronError) {
+  use raw <- result.try(parse(expr) |> result.map_error(ParseError))
+  use spec <- result.try(validate(raw) |> result.map_error(ValidationError))
+  Ok(next_after(spec, after: at))
 }
 
 /// Same as `matches/2` but takes an already-`normalize`d `CronPlan`,
