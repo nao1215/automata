@@ -88,7 +88,7 @@ fn render_event(event: ical_validator.Event) -> List(String) {
   let header = [
     "BEGIN:VEVENT",
     "UID:" <> ical_validator.event_uid(event),
-    "DTSTAMP:" <> render_datetime(ical_validator.event_dtstamp(event)),
+    "DTSTAMP:" <> render_datetime_utc(ical_validator.event_dtstamp(event)),
   ]
   let dtstart_lines =
     render_dt_with_tzid(
@@ -129,11 +129,11 @@ fn render_event(event: ical_validator.Event) -> List(String) {
     None -> []
   }
   let created_lines = case ical_validator.event_created(event) {
-    Some(dt) -> ["CREATED:" <> render_datetime(dt)]
+    Some(dt) -> ["CREATED:" <> render_datetime_utc(dt)]
     None -> []
   }
   let last_mod_lines = case ical_validator.event_last_modified(event) {
-    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime(dt)]
+    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime_utc(dt)]
     None -> []
   }
   let sequence_lines = case ical_validator.event_sequence(event) {
@@ -189,18 +189,18 @@ fn render_todo(t: ical_validator.Todo) -> List(String) {
   let header = [
     "BEGIN:VTODO",
     "UID:" <> ical_validator.todo_uid(t),
-    "DTSTAMP:" <> render_datetime(ical_validator.todo_dtstamp(t)),
+    "DTSTAMP:" <> render_datetime_utc(ical_validator.todo_dtstamp(t)),
   ]
   let dtstart_lines = case ical_validator.todo_dtstart(t) {
-    Some(dt) -> ["DTSTART:" <> render_datetime(dt)]
+    Some(dt) -> ["DTSTART:" <> render_datetime_utc(dt)]
     None -> []
   }
   let due_lines = case ical_validator.todo_due(t) {
-    Some(dt) -> ["DUE:" <> render_datetime(dt)]
+    Some(dt) -> ["DUE:" <> render_datetime_utc(dt)]
     None -> []
   }
   let completed_lines = case ical_validator.todo_completed(t) {
-    Some(dt) -> ["COMPLETED:" <> render_datetime(dt)]
+    Some(dt) -> ["COMPLETED:" <> render_datetime_utc(dt)]
     None -> []
   }
   let summary_lines = render_text_opt("SUMMARY", ical_validator.todo_summary(t))
@@ -256,10 +256,10 @@ fn render_journal(j: ical_validator.Journal) -> List(String) {
   let header = [
     "BEGIN:VJOURNAL",
     "UID:" <> ical_validator.journal_uid(j),
-    "DTSTAMP:" <> render_datetime(ical_validator.journal_dtstamp(j)),
+    "DTSTAMP:" <> render_datetime_utc(ical_validator.journal_dtstamp(j)),
   ]
   let dtstart_lines = case ical_validator.journal_dtstart(j) {
-    Some(dt) -> ["DTSTART:" <> render_datetime(dt)]
+    Some(dt) -> ["DTSTART:" <> render_datetime_utc(dt)]
     None -> []
   }
   let summary_lines =
@@ -293,14 +293,14 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
   let header = [
     "BEGIN:VFREEBUSY",
     "UID:" <> ical_validator.freebusy_uid(fb),
-    "DTSTAMP:" <> render_datetime(ical_validator.freebusy_dtstamp(fb)),
+    "DTSTAMP:" <> render_datetime_utc(ical_validator.freebusy_dtstamp(fb)),
   ]
   let dtstart_lines = case ical_validator.freebusy_dtstart(fb) {
-    Some(dt) -> ["DTSTART:" <> render_datetime(dt)]
+    Some(dt) -> ["DTSTART:" <> render_datetime_utc(dt)]
     None -> []
   }
   let dtend_lines = case ical_validator.freebusy_dtend(fb) {
-    Some(dt) -> ["DTEND:" <> render_datetime(dt)]
+    Some(dt) -> ["DTEND:" <> render_datetime_utc(dt)]
     None -> []
   }
   let organizer_lines = case ical_validator.freebusy_organizer(fb) {
@@ -332,7 +332,7 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
 fn render_timezone(tz: ical_validator.Timezone) -> List(String) {
   let header = ["BEGIN:VTIMEZONE", "TZID:" <> ical_validator.timezone_tzid(tz)]
   let last_mod_lines = case ical_validator.timezone_last_modified(tz) {
-    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime(dt)]
+    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime_utc(dt)]
     None -> []
   }
   let tzurl_lines = case ical_validator.timezone_tzurl(tz) {
@@ -502,7 +502,7 @@ fn render_dt_with_tzid(
     Some(dt) ->
       case tzid_opt {
         Some(tzid) -> [name <> ";TZID=" <> tzid <> ":" <> render_datetime(dt)]
-        None -> [name <> ":" <> render_datetime(dt)]
+        None -> [name <> ":" <> render_datetime_utc(dt)]
       }
   }
 }
@@ -516,7 +516,7 @@ fn render_dt_list(
     _ -> {
       let joined =
         values
-        |> list.map(render_datetime)
+        |> list.map(render_datetime_utc)
         |> string.join(",")
       [name <> ":" <> joined]
     }
@@ -554,15 +554,25 @@ fn render_raw_rrule(raw: rule_ast.RawRRule) -> String {
 // DateTime rendering
 // ============================================================
 
-/// Render a `DateTime` as the RFC 5545 form: `YYYYMMDDTHHMMSS` (15
-/// characters). Trailing `Z` for UTC isn't appended here — the
-/// caller carries that information out-of-band via `dtstart_tzid` or
-/// by writing the property without a `TZID` parameter.
+/// Render a `DateTime` as the RFC 5545 floating / TZID-anchored form:
+/// `YYYYMMDDTHHMMSS` (15 characters), no trailing `Z`. Use this only
+/// for properties that carry a `TZID` parameter or that are emitted
+/// inside `VTIMEZONE` (where DTSTART is local-clock by spec). All other
+/// DATE-TIME emissions should go through [`render_datetime_utc`](#render_datetime_utc).
 fn render_datetime(dt: schedule_ast.DateTime) -> String {
   let schedule_ast.DateTime(date: date, time: time) = dt
   let schedule_ast.Date(year: y, month: mo, day: d) = date
   let schedule_ast.Time(hour: h, minute: mi, second: s) = time
   pad4(y) <> pad2(mo) <> pad2(d) <> "T" <> pad2(h) <> pad2(mi) <> pad2(s)
+}
+
+/// Render a `DateTime` as the RFC 5545 UTC form (`FORM #2`): `YYYYMMDDTHHMMSSZ`
+/// (16 characters). Required for properties that the RFC mandates as UTC
+/// (DTSTAMP, CREATED, LAST-MODIFIED, COMPLETED) and used as the default for
+/// DATE-TIME properties emitted without a `TZID` parameter (round-trip
+/// preserves the UTC marker that the parser strips).
+fn render_datetime_utc(dt: schedule_ast.DateTime) -> String {
+  render_datetime(dt) <> "Z"
 }
 
 fn pad2(n: Int) -> String {
