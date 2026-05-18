@@ -284,6 +284,9 @@ fn weekday_to_string(day: Weekday) -> String {
 
 fn frequency_to_string(frequency: validator.Frequency) -> String {
   case frequency {
+    validator.Secondly -> "SECONDLY"
+    validator.Minutely -> "MINUTELY"
+    validator.Hourly -> "HOURLY"
     validator.Daily -> "DAILY"
     validator.Weekly -> "WEEKLY"
     validator.Monthly -> "MONTHLY"

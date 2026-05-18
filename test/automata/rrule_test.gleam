@@ -687,3 +687,51 @@ pub fn without_end_condition_clears_count_test() {
   |> rrule.build
   |> should.equal(Ok(parse_and_validate("FREQ=DAILY;BYHOUR=9;BYMINUTE=0")))
 }
+
+// --- RFC 5545 §3.3.10 sub-daily FREQ values ---
+
+pub fn validate_accepts_freq_hourly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=HOURLY")
+  let assert Ok(spec) = rrule.validate(raw)
+  rrule.to_string(spec)
+  |> should.equal("FREQ=HOURLY")
+}
+
+pub fn validate_accepts_freq_minutely_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=MINUTELY")
+  let assert Ok(spec) = rrule.validate(raw)
+  rrule.to_string(spec)
+  |> should.equal("FREQ=MINUTELY")
+}
+
+pub fn validate_accepts_freq_secondly_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=SECONDLY")
+  let assert Ok(spec) = rrule.validate(raw)
+  rrule.to_string(spec)
+  |> should.equal("FREQ=SECONDLY")
+}
+
+pub fn builder_accepts_freq_hourly_test() {
+  rrule.builder(rule_validator.Hourly)
+  |> rrule.build
+  |> should.equal(Ok(parse_and_validate("FREQ=HOURLY")))
+}
+
+pub fn builder_accepts_freq_minutely_test() {
+  rrule.builder(rule_validator.Minutely)
+  |> rrule.build
+  |> should.equal(Ok(parse_and_validate("FREQ=MINUTELY")))
+}
+
+pub fn builder_accepts_freq_secondly_test() {
+  rrule.builder(rule_validator.Secondly)
+  |> rrule.build
+  |> should.equal(Ok(parse_and_validate("FREQ=SECONDLY")))
+}
+
+pub fn freq_hourly_with_interval_round_trips_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=HOURLY;INTERVAL=2")
+  let assert Ok(spec) = rrule.validate(raw)
+  rrule.to_string(spec)
+  |> should.equal("FREQ=HOURLY;INTERVAL=2")
+}

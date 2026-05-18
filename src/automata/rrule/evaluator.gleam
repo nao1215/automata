@@ -77,6 +77,20 @@ fn base_match(plan: RRulePlan, at: DateTime) -> Bool {
 
 fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
   case plan.frequency {
+    validator.Secondly ->
+      modulo(calendar.seconds_between(plan.anchor, at), plan.interval) == 0
+    validator.Minutely ->
+      modulo(
+        quotient(calendar.seconds_between(plan.anchor, at), 60),
+        plan.interval,
+      )
+      == 0
+    validator.Hourly ->
+      modulo(
+        quotient(calendar.seconds_between(plan.anchor, at), 3600),
+        plan.interval,
+      )
+      == 0
     validator.Daily -> modulo(days_between(plan.anchor, at), plan.interval) == 0
     validator.Weekly ->
       modulo(weeks_between(plan.anchor, at), plan.interval) == 0
