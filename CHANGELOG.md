@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `automata/rrule`: `rrule.validate` now accepts the three sub-daily RFC 5545 §3.3.10 frequencies (`SECONDLY`, `MINUTELY`, `HOURLY`) which were silently rejected with `InvalidPartValue(FreqPart, ...)` despite the parser accepting them. `rrule.to_string` round-trips them, and `rrule.builder(validator.Secondly | Minutely | Hourly)` now type-checks. `aligned()` in the evaluator gains sub-daily alignment via `calendar.seconds_between`. (#38)
+- `automata/cron`: `cron.matches` no longer requires `at.time.second == 0`. UNIX cron is minute-granular per POSIX — the five fields are `minute / hour / day-of-month / month / day-of-week` with no second field, so any instant within a matching minute is a firing. Previously `matches` returned False for inputs with non-zero seconds (e.g. `cron.matches("30 * * * *", at: 12:30:30)` returned False instead of True). The iterator and `next_after` are unchanged because they already produce minute-boundary times by construction. (#41)
 
 ## [0.7.0] - 2026-05-16
 

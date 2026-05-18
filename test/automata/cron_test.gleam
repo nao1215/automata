@@ -597,3 +597,27 @@ pub fn next_after_string_reports_validation_error_test() {
   let assert Error(cron.ValidationError(_)) =
     cron.next_after_string(expr: "60 0 * * *", at: vdt(2026, 5, 11, 0, 0, 0))
 }
+
+// --- minute-granularity contract ---
+
+pub fn matches_ignores_seconds_test() {
+  // UNIX cron is minute-granular — any second within a matching minute fires.
+  let assert Ok(raw) = cron.parse(input: "30 * * * *")
+  let assert Ok(spec) = cron.validate(raw: raw)
+
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 30, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 30, 1)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 30, 30)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 30, 59)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 29, 59)) |> should.equal(False)
+  cron.matches(spec, at: vdt(2026, 5, 11, 9, 31, 0)) |> should.equal(False)
+}
+
+pub fn matches_every_minute_ignores_seconds_test() {
+  let assert Ok(raw) = cron.parse(input: "* * * * *")
+  let assert Ok(spec) = cron.validate(raw: raw)
+
+  cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 0)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 30)) |> should.equal(True)
+  cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 59)) |> should.equal(True)
+}
