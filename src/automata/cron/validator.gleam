@@ -237,7 +237,7 @@ fn parse_step(
           case int.parse(step_text) {
             Error(_) -> Error(InvalidStep(field: field, value: part))
             Ok(step) ->
-              case step > 0 {
+              case step > 0 && step <= max - min {
                 False -> Error(InvalidStep(field: field, value: part))
                 True ->
                   case parse_step_base(field, base, min, max, aliases) {

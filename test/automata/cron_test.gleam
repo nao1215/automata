@@ -621,3 +621,59 @@ pub fn matches_every_minute_ignores_seconds_test() {
   cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 30)) |> should.equal(True)
   cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 59)) |> should.equal(True)
 }
+
+// --- step value range validation (Vixie cron strictness) ---
+
+pub fn validate_rejects_step_above_minute_range_test() {
+  let assert Ok(raw) = cron.parse(input: "*/60 * * * *")
+  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
+    cron.validate(raw: raw)
+  f |> should.equal(cron_ast.Minute)
+}
+
+pub fn validate_rejects_step_above_hour_range_test() {
+  let assert Ok(raw) = cron.parse(input: "* */24 * * *")
+  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
+    cron.validate(raw: raw)
+  f |> should.equal(cron_ast.Hour)
+}
+
+pub fn validate_rejects_step_above_day_of_month_range_test() {
+  let assert Ok(raw) = cron.parse(input: "* * */31 * *")
+  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
+    cron.validate(raw: raw)
+  f |> should.equal(cron_ast.DayOfMonth)
+}
+
+pub fn validate_rejects_step_above_month_range_test() {
+  let assert Ok(raw) = cron.parse(input: "* * * */12 *")
+  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
+    cron.validate(raw: raw)
+  f |> should.equal(cron_ast.Month)
+}
+
+pub fn validate_rejects_step_above_day_of_week_range_test() {
+  // DoW range is 0..=7 (POSIX with 7 as alternate Sunday), so max - min = 7.
+  // */8 exceeds that.
+  let assert Ok(raw) = cron.parse(input: "* * * * */8")
+  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
+    cron.validate(raw: raw)
+  f |> should.equal(cron_ast.DayOfWeek)
+}
+
+pub fn validate_rejects_step_far_above_range_test() {
+  let assert Ok(raw) = cron.parse(input: "*/61 * * * *")
+  let assert Error(cron_validator.InvalidStep(_, _)) = cron.validate(raw: raw)
+}
+
+pub fn validate_accepts_step_within_minute_range_test() {
+  let assert Ok(raw) = cron.parse(input: "*/30 * * * *")
+  let assert Ok(_) = cron.validate(raw: raw)
+}
+
+pub fn validate_accepts_step_at_max_minus_min_boundary_test() {
+  // For minute field 0..=59, max - min = 59. */59 is the strictest accepted
+  // step — it still fires twice (at 0 and 59).
+  let assert Ok(raw) = cron.parse(input: "*/59 * * * *")
+  let assert Ok(_) = cron.validate(raw: raw)
+}
