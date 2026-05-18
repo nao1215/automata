@@ -7,6 +7,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 pub type Frequency {
+  Secondly
+  Minutely
+  Hourly
   Daily
   Weekly
   Monthly
@@ -423,6 +426,9 @@ fn day_matches_month_day(day: Int, maximum: Int) -> Bool {
 
 fn parse_frequency(value: String) -> Result(Frequency, ValidationError) {
   case string.uppercase(value) {
+    "SECONDLY" -> Ok(Secondly)
+    "MINUTELY" -> Ok(Minutely)
+    "HOURLY" -> Ok(Hourly)
     "DAILY" -> Ok(Daily)
     "WEEKLY" -> Ok(Weekly)
     "MONTHLY" -> Ok(Monthly)
@@ -702,6 +708,9 @@ fn weekday_to_string(day: schedule_ast.Weekday) -> String {
 
 fn frequency_to_string(frequency: Frequency) -> String {
   case frequency {
+    Secondly -> "SECONDLY"
+    Minutely -> "MINUTELY"
+    Hourly -> "HOURLY"
     Daily -> "DAILY"
     Weekly -> "WEEKLY"
     Monthly -> "MONTHLY"

@@ -77,6 +77,20 @@ fn base_match(plan: RRulePlan, at: DateTime) -> Bool {
 
 fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
   case plan.frequency {
+    validator.Secondly ->
+      modulo(calendar.seconds_between(plan.anchor, at), plan.interval) == 0
+    validator.Minutely ->
+      modulo(
+        quotient(calendar.seconds_between(plan.anchor, at), 60),
+        plan.interval,
+      )
+      == 0
+    validator.Hourly ->
+      modulo(
+        quotient(calendar.seconds_between(plan.anchor, at), 3600),
+        plan.interval,
+      )
+      == 0
     validator.Daily -> modulo(days_between(plan.anchor, at), plan.interval) == 0
     validator.Weekly ->
       modulo(weeks_between(plan.anchor, at), plan.interval) == 0
@@ -152,8 +166,16 @@ pub fn next_occurrence(
 
       case within_until(plan.end_condition, start) {
         False -> None
-        True ->
-          case day_matches(plan, start.date) && aligned(plan, start) {
+        True -> {
+          // Sub-daily frequencies have time-varying alignment within a single
+          // day, so a non-aligned `start` instant must not skip the whole day —
+          // valid later same-day occurrences exist. Day-level alignment gating
+          // only applies to day-or-coarser frequencies.
+          let day_alignment_ok = case is_sub_daily(plan.frequency) {
+            True -> True
+            False -> aligned(plan, start)
+          }
+          case day_matches(plan, start.date) && day_alignment_ok {
             True ->
               case next_time_on_day(plan, start.date, start) {
                 Some(found) ->
@@ -175,8 +197,16 @@ pub fn next_occurrence(
                 guard: guard + 1,
               )
           }
+        }
       }
     }
+  }
+}
+
+fn is_sub_daily(frequency: validator.Frequency) -> Bool {
+  case frequency {
+    validator.Secondly | validator.Minutely | validator.Hourly -> True
+    _ -> False
   }
 }
 
