@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-18
+
 ### Fixed
 
 - `automata/rrule`: `rrule.validate` now accepts the three sub-daily RFC 5545 §3.3.10 frequencies (`SECONDLY`, `MINUTELY`, `HOURLY`) which were silently rejected with `InvalidPartValue(FreqPart, ...)` despite the parser accepting them. `rrule.to_string` round-trips them, and `rrule.builder(validator.Secondly | Minutely | Hourly)` now type-checks. `aligned()` in the evaluator gains sub-daily alignment via `calendar.seconds_between`. (#38)

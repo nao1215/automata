@@ -1,5 +1,5 @@
 name = "automata"
-version = "0.7.0"
+version = "0.8.0"
 description = "Cron, RRULE, retries, filesystem events, and finite automata for Gleam"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "automata" }
