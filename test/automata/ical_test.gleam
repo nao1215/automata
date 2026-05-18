@@ -533,3 +533,39 @@ pub fn escape_text_round_trip_test() {
   let assert [e2] = ical.events(cal2)
   ical.event_summary(e2) |> should.equal(Some(s))
 }
+
+// ============================================================
+// UTC marker preservation (RFC 5545 §3.3.5 FORM #2)
+// ============================================================
+
+const utc_event_ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\nUID:utc@test\r\nDTSTAMP:20240101T120000Z\r\nDTSTART:20240615T090000Z\r\nDTEND:20240615T100000Z\r\nSUMMARY:Meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+pub fn encode_preserves_z_marker_on_dtstamp_test() {
+  let body = utc_event_ics
+  let assert Ok(cal) = ical.parse(body)
+  let encoded = ical.encode(cal)
+  // Every emitted DATE-TIME line should keep its Z suffix.
+  string.contains(encoded, "DTSTAMP:20240101T120000Z") |> should.equal(True)
+  string.contains(encoded, "DTSTART:20240615T090000Z") |> should.equal(True)
+  string.contains(encoded, "DTEND:20240615T100000Z") |> should.equal(True)
+}
+
+pub fn encode_keeps_no_z_under_tzid_test() {
+  // When DTSTART carries TZID, the value is FORM #3 (local time anchored
+  // to a named zone) and MUST NOT have a Z suffix.
+  let assert Ok(cal) = ical.parse(google_export_ics)
+  let encoded = ical.encode(cal)
+  // Should emit DTSTART;TZID=Asia/Tokyo:20260620T100000 (no Z)
+  string.contains(encoded, "DTSTART;TZID=Asia/Tokyo:20260620T100000")
+  |> should.equal(True)
+  // ... but DTSTAMP (which has no TZID) should keep its Z
+  string.contains(encoded, "DTSTAMP:20260601T000000Z") |> should.equal(True)
+}
+
+pub fn encode_preserves_z_on_created_and_last_modified_test() {
+  let assert Ok(cal) = ical.parse(nextcloud_export_ics)
+  let encoded = ical.encode(cal)
+  string.contains(encoded, "CREATED:20260101T100000Z") |> should.equal(True)
+  string.contains(encoded, "LAST-MODIFIED:20260105T120000Z")
+  |> should.equal(True)
+}
