@@ -12,11 +12,13 @@ pub fn matches(plan plan: CronPlan, at at: DateTime) -> Bool {
   let day_of_week_match =
     int_set_contains(plan.day_of_week, calendar.day_of_week_number(at))
 
+  // UNIX cron is minute-granular per POSIX — the five fields are minute /
+  // hour / day-of-month / month / day-of-week with no second field. Any
+  // instant within a matching minute is a firing, regardless of seconds.
   minute_match
   && hour_match
   && month_match
   && matches_day(plan, day_of_month_match, day_of_week_match)
-  && at.time.second == 0
 }
 
 pub fn int_set_contains(int_set: IntSet, value: Int) -> Bool {
