@@ -106,6 +106,23 @@ pub type ValidationError {
   NumericWeekdayRequiresMonthlyOrYearly(frequency: Frequency)
   ImpossibleDate(by_month: String, by_month_day: String)
   IncompatibleFrequencyAndPart(frequency: Frequency, part: RulePart)
+  /// UNTIL was given in FORM #3 (local DATE-TIME) shape — either the
+  /// length-15 `YYYYMMDDTHHMMSS` form or a length-16 `YYYYMMDDTHHMMSS_`
+  /// where the trailing character is not `Z`. RFC 5545 §3.3.10 accepts
+  /// FORM #3 only when DTSTART is also local time, and `validate`
+  /// runs anchor-less; the caller almost always means UTC and just
+  /// forgot the `Z` suffix.
+  UntilMissingZ(value: String)
+  /// UNTIL was syntactically a valid FORM #3 local DATE-TIME but
+  /// `automata/rrule.validate` refuses it because the validator has
+  /// no DTSTART context with which to check the RFC 5545 §3.8.5.3
+  /// "same value type as DTSTART" rule. `reason` carries the human-
+  /// readable explanation for use in error reports.
+  UntilLocalFormUnsupported(value: String, reason: String)
+  /// UNTIL was neither a recognisable DATE (`YYYYMMDD`) nor a
+  /// recognisable DATE-TIME (`YYYYMMDDTHHMMSSZ`): wrong length, bad
+  /// numeric components, or missing the `T` separator at position 8.
+  UntilMalformedDateTime(value: String)
 }
 
 type PartialRule {
@@ -583,36 +600,81 @@ fn parse_until(value: String) -> Result(Until, ValidationError) {
         Ok(date) -> Ok(UntilDate(date))
         Error(error) -> Error(error)
       }
+    15 ->
+      case string.slice(from: value, at_index: 8, length: 1) == "T" {
+        True -> classify_unzed_local_form(value)
+        False -> Error(UntilMalformedDateTime(value: value))
+      }
     16 ->
-      case
-        string.slice(from: value, at_index: 8, length: 1) == "T"
-        && string.slice(from: value, at_index: 15, length: 1) == "Z"
-      {
-        False -> Error(InvalidPartValue(part: UntilPart, value: value))
+      case string.slice(from: value, at_index: 8, length: 1) == "T" {
+        False -> Error(UntilMalformedDateTime(value: value))
         True ->
-          case parse_datetime(value) {
-            Ok(datetime) -> Ok(UntilDateTime(datetime))
-            Error(error) -> Error(error)
+          case string.slice(from: value, at_index: 15, length: 1) == "Z" {
+            False -> Error(UntilMissingZ(value: value))
+            True ->
+              case parse_datetime(value) {
+                Ok(datetime) -> Ok(UntilDateTime(datetime))
+                Error(error) -> Error(error)
+              }
           }
       }
-    _ -> Error(InvalidPartValue(part: UntilPart, value: value))
+    _ -> Error(UntilMalformedDateTime(value: value))
+  }
+}
+
+/// `value` already has T at position 8 and length 15 (no trailing Z).
+/// If the date and time components are all syntactically valid digits,
+/// emit `UntilMissingZ` — the user almost always meant UTC and just
+/// forgot the suffix, so the actionable hint is "add `Z`". Otherwise
+/// the components are malformed, so emit `UntilMalformedDateTime`.
+fn classify_unzed_local_form(value: String) -> Result(Until, ValidationError) {
+  case parse_local_datetime_components(value) {
+    Ok(_) -> Error(UntilMissingZ(value: value))
+    Error(_) -> Error(UntilMalformedDateTime(value: value))
+  }
+}
+
+fn parse_local_datetime_components(value: String) -> Result(Nil, Nil) {
+  case parse_fixed_int(value, 0, 4) {
+    Error(_) -> Error(Nil)
+    Ok(_) ->
+      case parse_fixed_int(value, 4, 2) {
+        Error(_) -> Error(Nil)
+        Ok(_) ->
+          case parse_fixed_int(value, 6, 2) {
+            Error(_) -> Error(Nil)
+            Ok(_) ->
+              case parse_fixed_int(value, 9, 2) {
+                Error(_) -> Error(Nil)
+                Ok(_) ->
+                  case parse_fixed_int(value, 11, 2) {
+                    Error(_) -> Error(Nil)
+                    Ok(_) ->
+                      case parse_fixed_int(value, 13, 2) {
+                        Error(_) -> Error(Nil)
+                        Ok(_) -> Ok(Nil)
+                      }
+                  }
+              }
+          }
+      }
   }
 }
 
 fn parse_date(value: String) -> Result(schedule_ast.Date, ValidationError) {
   case parse_fixed_int(value, 0, 4) {
-    Error(_) -> Error(InvalidPartValue(part: UntilPart, value: value))
+    Error(_) -> Error(UntilMalformedDateTime(value: value))
     Ok(year) ->
       case parse_fixed_int(value, 4, 2) {
-        Error(_) -> Error(InvalidPartValue(part: UntilPart, value: value))
+        Error(_) -> Error(UntilMalformedDateTime(value: value))
         Ok(month) ->
           case parse_fixed_int(value, 6, 2) {
-            Error(_) -> Error(InvalidPartValue(part: UntilPart, value: value))
+            Error(_) -> Error(UntilMalformedDateTime(value: value))
             Ok(day) -> {
               let date = schedule_ast.Date(year:, month:, day:)
               case calendar.is_valid_date(date) {
                 True -> Ok(date)
-                False -> Error(InvalidPartValue(part: UntilPart, value: value))
+                False -> Error(UntilMalformedDateTime(value: value))
               }
             }
           }
@@ -623,18 +685,17 @@ fn parse_date(value: String) -> Result(schedule_ast.Date, ValidationError) {
 fn parse_datetime(
   value: String,
 ) -> Result(schedule_ast.DateTime, ValidationError) {
-  case parse_date(string.slice(from: value, at_index: 0, length: 8)) {
+  case parse_date_in_datetime(value) {
     Error(error) -> Error(error)
     Ok(date) ->
       case parse_fixed_int(value, 9, 2) {
-        Error(_) -> Error(InvalidPartValue(part: UntilPart, value: value))
+        Error(_) -> Error(UntilMalformedDateTime(value: value))
         Ok(hour) ->
           case parse_fixed_int(value, 11, 2) {
-            Error(_) -> Error(InvalidPartValue(part: UntilPart, value: value))
+            Error(_) -> Error(UntilMalformedDateTime(value: value))
             Ok(minute) ->
               case parse_fixed_int(value, 13, 2) {
-                Error(_) ->
-                  Error(InvalidPartValue(part: UntilPart, value: value))
+                Error(_) -> Error(UntilMalformedDateTime(value: value))
                 Ok(second) -> {
                   let datetime =
                     schedule_ast.DateTime(
@@ -647,13 +708,21 @@ fn parse_datetime(
                     )
                   case calendar.is_valid_datetime(datetime) {
                     True -> Ok(datetime)
-                    False ->
-                      Error(InvalidPartValue(part: UntilPart, value: value))
+                    False -> Error(UntilMalformedDateTime(value: value))
                   }
                 }
               }
           }
       }
+  }
+}
+
+fn parse_date_in_datetime(
+  value: String,
+) -> Result(schedule_ast.Date, ValidationError) {
+  case parse_date(string.slice(from: value, at_index: 0, length: 8)) {
+    Ok(date) -> Ok(date)
+    Error(_) -> Error(UntilMalformedDateTime(value: value))
   }
 }
 
