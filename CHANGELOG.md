@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `automata/retry`: `Duration`, `FailureKind` (`Transient` / `Permanent`), `GiveUpReason` (`PolicyDisallowsRetry` / `MaxAttemptsReached` / `PermanentFailureSignaled` / `DelayOverflow`), `RetryError`, `Jitter`, and the duration helpers (`from_milliseconds` / `from_seconds` / `from_minutes` / `duration_milliseconds` / `duration_seconds` / `duration_to_string`) now live directly in `automata/retry` instead of `automata/retry/ast`. The `automata/retry/ast` submodule has been removed; callers that were importing both `automata/retry` and `automata/retry/ast` only need the former now. Migrate with `s/automata\/retry\/ast/automata\/retry/` on imports and references. **Breaking**. (#47)
 
+### Fixed
+
+- `automata/fsevent`: `fsevent.normalize` no longer silently collapses Windows UNC-style paths (`//server/share` or `\\server\share`) to `/server/share`. Inputs with exactly two leading slashes after backslash unification are now rejected with a dedicated `UncPathNotSupported(path: String)` error; `fsevent` is POSIX-only and cross-platform callers should now see an explicit failure instead of a path whose UNC prefix has silently disappeared. Three or more leading slashes are still treated as a single leading slash per POSIX `IEEE Std 1003.1-2017 §4.13` (`///a/b` → `/a/b`). **Breaking** for callers that relied on the silent collapse — they will now see `Error(UncPathNotSupported(...))` and must filter or convert UNC inputs themselves. (#48)
+
 ## [0.8.0] - 2026-05-18
 
 ### Fixed

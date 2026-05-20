@@ -1,7 +1,9 @@
 import automata/fsevent/ast.{
   type FseventError, EmptyPath, PathContainsDotSegment, PathContainsNullByte,
+  UncPathNotSupported,
 }
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// A path that has been canonicalised into a portable form: backslashes
@@ -21,22 +23,48 @@ pub opaque type NormalizedPath {
 /// works at the string level so it stays pure and produces the same
 /// output on every platform regardless of the underlying filesystem.
 pub fn normalize(path path: String) -> Result(NormalizedPath, FseventError) {
+  use _ <- result.try(reject_empty(path))
+  use _ <- result.try(reject_null_byte(path))
+  let unified = string.replace(path, "\\", "/")
+  use _ <- result.try(reject_unc_prefix(path, unified))
+  let raw_segments = string.split(unified, "/")
+  let segments = list.filter(raw_segments, fn(s) { s != "" })
+  use _ <- result.try(validate_segments(path, segments))
+  Ok(build(unified, segments))
+}
+
+fn reject_empty(path: String) -> Result(Nil, FseventError) {
   case path {
     "" -> Error(EmptyPath)
-    _ ->
-      case string.contains(path, "\u{0000}") {
-        True -> Error(PathContainsNullByte(path: path))
-        False -> {
-          let unified = string.replace(path, "\\", "/")
-          let raw_segments = string.split(unified, "/")
-          let segments = list.filter(raw_segments, fn(s) { s != "" })
-          case validate_segments(path, segments) {
-            Error(error) -> Error(error)
-            Ok(_) -> Ok(build(unified, segments))
-          }
-        }
-      }
+    _ -> Ok(Nil)
   }
+}
+
+fn reject_null_byte(path: String) -> Result(Nil, FseventError) {
+  case string.contains(path, "\u{0000}") {
+    True -> Error(PathContainsNullByte(path: path))
+    False -> Ok(Nil)
+  }
+}
+
+fn reject_unc_prefix(
+  original: String,
+  unified: String,
+) -> Result(Nil, FseventError) {
+  case is_unc_prefix(unified) {
+    True -> Error(UncPathNotSupported(path: original))
+    False -> Ok(Nil)
+  }
+}
+
+/// `True` when `unified` has exactly two leading forward slashes —
+/// the case POSIX `IEEE Std 1003.1-2017 §4.13` flags as
+/// implementation-defined and Windows uses for UNC paths
+/// (`//server/share` or `\\server\share` after backslash unification).
+/// Three or more leading slashes are POSIX-equivalent to a single
+/// slash and remain accepted.
+fn is_unc_prefix(unified: String) -> Bool {
+  string.starts_with(unified, "//") && !string.starts_with(unified, "///")
 }
 
 /// The canonical string rendering of a normalised path.
