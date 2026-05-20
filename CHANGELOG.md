@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `automata/retry`: `Duration`, `FailureKind` (`Transient` / `Permanent`), `GiveUpReason` (`PolicyDisallowsRetry` / `MaxAttemptsReached` / `PermanentFailureSignaled` / `DelayOverflow`), `RetryError`, `Jitter`, and the duration helpers (`from_milliseconds` / `from_seconds` / `from_minutes` / `duration_milliseconds` / `duration_seconds` / `duration_to_string`) now live directly in `automata/retry` instead of `automata/retry/ast`. The `automata/retry/ast` submodule has been removed; callers that were importing both `automata/retry` and `automata/retry/ast` only need the former now. Migrate with `s/automata\/retry\/ast/automata\/retry/` on imports and references. **Breaking**. (#47)
+
 ## [0.8.0] - 2026-05-18
 
 ### Fixed

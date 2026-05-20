@@ -72,7 +72,6 @@ prefer_guard_clause = "off"
 ]
 "src/automata/event/builtin/match.gleam" = ["unused_exports"]
 "src/automata/retry.gleam" = ["unused_exports"]
-"src/automata/retry/ast.gleam" = ["unused_exports"]
 "src/automata/retry/internal/prng.gleam" = ["unused_exports"]
 "src/automata/fsevent.gleam" = ["unused_exports"]
 "src/automata/fsevent/ast.gleam" = ["unused_exports"]

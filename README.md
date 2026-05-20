@@ -343,11 +343,10 @@ unwanted ops before they reach the result list.
 
 ```gleam
 import automata/retry
-import automata/retry/ast as retry_ast
 
 pub fn http_backoff() {
-  let assert Ok(initial) = retry_ast.from_milliseconds(milliseconds: 100)
-  let assert Ok(cap) = retry_ast.from_seconds(seconds: 30)
+  let assert Ok(initial) = retry.from_milliseconds(milliseconds: 100)
+  let assert Ok(cap) = retry.from_seconds(seconds: 30)
   let assert Ok(base) =
     retry.capped_exponential(
       initial: initial,
@@ -355,15 +354,16 @@ pub fn http_backoff() {
       cap: cap,
       max_attempts: 6,
     )
-  retry.with_jitter(policy: base, jitter: retry_ast.FullJitter)
+  retry.with_jitter(policy: base, jitter: retry.FullJitter)
 }
 
 pub fn drive(policy) {
+  let assert Ok(zero) = retry.from_milliseconds(milliseconds: 0)
   let ctx0 = retry.start(policy: policy, seed: 12_345)
 
-  case retry.decide(ctx: ctx0, failure: retry_ast.Transient) {
+  case retry.decide(ctx: ctx0, failure: retry.Transient) {
     retry.Retry(delay: delay, next: _next) -> delay
-    retry.GiveUp(reason: _reason) -> retry_ast.unsafe_milliseconds(value: 0)
+    retry.GiveUp(reason: _reason) -> zero
   }
 }
 ```
@@ -380,13 +380,13 @@ deadline. The bundled PRNG runs in pure Gleam, so the same
 reach for `retry.fixed` instead — the policy types are otherwise
 interchangeable through `retry.with_jitter` / `retry.start`.
 
-The available jitter strategies live in `automata/retry/ast`:
+The available jitter strategies live in `automata/retry`:
 
-| Constructor              | Spread                            |
-| ------------------------ | --------------------------------- |
-| `retry_ast.NoJitter`     | none — use the base delay as-is   |
-| `retry_ast.FullJitter`   | uniform on `[0, base]` (AWS "full jitter") |
-| `retry_ast.EqualJitter`  | uniform on `[base / 2, base]` (AWS "equal jitter") |
+| Constructor          | Spread                                             |
+| -------------------- | -------------------------------------------------- |
+| `retry.NoJitter`     | none — use the base delay as-is                    |
+| `retry.FullJitter`   | uniform on `[0, base]` (AWS "full jitter")         |
+| `retry.EqualJitter`  | uniform on `[base / 2, base]` (AWS "equal jitter") |
 
 `NoJitter` is the default for every `retry.fixed` / `retry.exponential` /
 `retry.capped_exponential` policy; reach for `retry.with_jitter` only
