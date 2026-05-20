@@ -2,7 +2,6 @@ import automata
 import automata/ical
 import automata/ical/emitter as ical_emitter
 import automata/retry
-import automata/retry/ast as retry_ast
 import automata/schedule/ast as schedule_ast
 import gleam/list
 import gleam/option.{Some}
@@ -71,28 +70,28 @@ pub fn duration_from_milliseconds_round_trip_test() {
     gen: generator.int(range.constant(-1000, 1_000_000)),
     name: "duration_from_milliseconds_round_trip",
     encode: fn(value) {
-      case retry_ast.from_milliseconds(milliseconds: value) {
+      case retry.from_milliseconds(milliseconds: value) {
         Ok(duration) -> Ok(duration)
         Error(_) -> Error(Nil)
       }
     },
-    decode: fn(duration) { Ok(retry_ast.duration_milliseconds(duration)) },
+    decode: fn(duration) { Ok(retry.duration_milliseconds(duration)) },
   )
 }
 
 pub fn duration_from_seconds_milliseconds_consistent_test() {
   metamon.forall(generator.int(range.constant(0, 100_000)), fn(seconds) {
-    let assert Ok(duration) = retry_ast.from_seconds(seconds: seconds)
-    retry_ast.duration_milliseconds(duration) == seconds * 1000
-    && retry_ast.duration_seconds(duration) == seconds
+    let assert Ok(duration) = retry.from_seconds(seconds: seconds)
+    retry.duration_milliseconds(duration) == seconds * 1000
+    && retry.duration_seconds(duration) == seconds
   })
 }
 
 pub fn no_retry_always_gives_up_on_transient_test() {
   metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
     let context = retry.start(policy: retry.no_retry(), seed: seed)
-    case retry.decide(ctx: context, failure: retry_ast.Transient) {
-      retry.GiveUp(reason: retry_ast.PolicyDisallowsRetry) -> True
+    case retry.decide(ctx: context, failure: retry.Transient) {
+      retry.GiveUp(reason: retry.PolicyDisallowsRetry) -> True
       _ -> False
     }
   })
@@ -101,8 +100,8 @@ pub fn no_retry_always_gives_up_on_transient_test() {
 pub fn permanent_failure_always_gives_up_test() {
   metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
     let context = retry.start(policy: retry.no_retry(), seed: seed)
-    case retry.decide(ctx: context, failure: retry_ast.Permanent) {
-      retry.GiveUp(reason: retry_ast.PermanentFailureSignaled(at_attempt: 1)) ->
+    case retry.decide(ctx: context, failure: retry.Permanent) {
+      retry.GiveUp(reason: retry.PermanentFailureSignaled(at_attempt: 1)) ->
         True
       _ -> False
     }
@@ -113,16 +112,15 @@ pub fn fresh_context_has_zero_attempt_test() {
   metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
     let context = retry.start(policy: retry.no_retry(), seed: seed)
     retry.current_attempt(ctx: context) == 0
-    && retry_ast.duration_milliseconds(retry.cumulative_delay(ctx: context))
-    == 0
+    && retry.duration_milliseconds(retry.cumulative_delay(ctx: context)) == 0
   })
 }
 
 pub fn fixed_policy_max_attempts_must_be_positive_test() {
   metamon.forall(generator.int(range.constant(-100, 0)), fn(invalid_max) {
-    let assert Ok(delay) = retry_ast.from_milliseconds(milliseconds: 100)
+    let assert Ok(delay) = retry.from_milliseconds(milliseconds: 100)
     case retry.fixed(delay: delay, max_attempts: invalid_max) {
-      Error(retry_ast.MaxAttemptsMustBePositive(actual: actual)) ->
+      Error(retry.MaxAttemptsMustBePositive(actual: actual)) ->
         actual == invalid_max
       _ -> False
     }
@@ -131,7 +129,7 @@ pub fn fixed_policy_max_attempts_must_be_positive_test() {
 
 pub fn exponential_policy_multiplier_must_be_at_least_two_test() {
   metamon.forall(generator.int(range.constant(-10, 1)), fn(bad_multiplier) {
-    let assert Ok(initial) = retry_ast.from_milliseconds(milliseconds: 100)
+    let assert Ok(initial) = retry.from_milliseconds(milliseconds: 100)
     case
       retry.exponential(
         initial: initial,
@@ -139,7 +137,7 @@ pub fn exponential_policy_multiplier_must_be_at_least_two_test() {
         max_attempts: 5,
       )
     {
-      Error(retry_ast.MultiplierMustBeAtLeastTwo(actual: actual)) ->
+      Error(retry.MultiplierMustBeAtLeastTwo(actual: actual)) ->
         actual == bad_multiplier
       _ -> False
     }

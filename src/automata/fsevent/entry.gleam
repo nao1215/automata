@@ -6,7 +6,7 @@ import automata/fsevent/path.{type NormalizedPath}
 import gleam/option.{type Option, None, Some}
 
 /// Largest integer JavaScript's `Number` can represent without losing
-/// precision. We reuse the cap from `automata/retry/ast` so a value
+/// precision. We reuse the cap from `automata/retry` so a value
 /// that round-trips through the BEAM and JavaScript targets always
 /// produces the same answer.
 const max_safe_int: Int = 9_007_199_254_740_991
