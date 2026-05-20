@@ -553,12 +553,7 @@ pub fn validate_rejects_until_with_wrong_length_test() {
   let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=2026")
 
   rrule.validate(raw)
-  |> should.equal(
-    Error(rule_validator.InvalidPartValue(
-      part: rule_validator.UntilPart,
-      value: "2026",
-    )),
-  )
+  |> should.equal(Error(rule_validator.UntilMalformedDateTime(value: "2026")))
 }
 
 pub fn validate_rejects_until_with_invalid_date_test() {
@@ -566,10 +561,7 @@ pub fn validate_rejects_until_with_invalid_date_test() {
 
   rrule.validate(raw)
   |> should.equal(
-    Error(rule_validator.InvalidPartValue(
-      part: rule_validator.UntilPart,
-      value: "20260230",
-    )),
+    Error(rule_validator.UntilMalformedDateTime(value: "20260230")),
   )
 }
 
@@ -578,11 +570,40 @@ pub fn validate_rejects_until_datetime_without_z_suffix_test() {
 
   rrule.validate(raw)
   |> should.equal(
-    Error(rule_validator.InvalidPartValue(
-      part: rule_validator.UntilPart,
-      value: "20260101T120000X",
-    )),
+    Error(rule_validator.UntilMissingZ(value: "20260101T120000X")),
   )
+}
+
+pub fn validate_accepts_until_date_form_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=20260525")
+  case rrule.validate(raw) {
+    Ok(_) -> Nil
+    Error(_) -> should.fail()
+  }
+}
+
+pub fn validate_accepts_until_utc_form_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=20260525T000000Z")
+  case rrule.validate(raw) {
+    Ok(_) -> Nil
+    Error(_) -> should.fail()
+  }
+}
+
+pub fn validate_rejects_until_local_form_with_specific_error_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=20260525T000000")
+  case rrule.validate(raw) {
+    Error(rule_validator.UntilMissingZ(value: "20260525T000000")) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn validate_rejects_until_garbage_with_specific_error_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=DAILY;UNTIL=garbage")
+  case rrule.validate(raw) {
+    Error(rule_validator.UntilMalformedDateTime(value: "garbage")) -> Nil
+    _ -> should.fail()
+  }
 }
 
 pub fn validate_accepts_until_datetime_test() {
