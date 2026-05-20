@@ -1,5 +1,5 @@
 import automata/fsevent/ast.{
-  EmptyPath, PathContainsDotSegment, PathContainsNullByte,
+  EmptyPath, PathContainsDotSegment, PathContainsNullByte, UncPathNotSupported,
 }
 import automata/fsevent/path
 import gleeunit/should
@@ -102,9 +102,30 @@ pub fn normalize_relative_path_is_not_absolute_test() {
   path.path_is_absolute(p) |> should.equal(False)
 }
 
-pub fn normalize_unc_path_test() {
-  let p = ok("\\\\srv\\share\\dir")
-  path.path_to_string(p) |> should.equal("/srv/share/dir")
+pub fn normalize_rejects_forward_slash_unc_path_test() {
+  case path.normalize(path: "//server/share") {
+    Error(UncPathNotSupported(path: "//server/share")) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn normalize_rejects_backslash_unc_path_test() {
+  case path.normalize(path: "\\\\srv\\share\\dir") {
+    Error(UncPathNotSupported(path: "\\\\srv\\share\\dir")) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn normalize_rejects_double_slash_only_test() {
+  case path.normalize(path: "//") {
+    Error(UncPathNotSupported(path: "//")) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn normalize_collapses_triple_slash_to_root_test() {
+  let p = ok("///a/b")
+  path.path_to_string(p) |> should.equal("/a/b")
   path.path_is_absolute(p) |> should.equal(True)
 }
 

@@ -40,6 +40,14 @@ pub type FseventError {
   /// A path contains a `\u{0000}` byte; rejected to keep keys safe
   /// for use as `Dict` keys and string-rendered identifiers.
   PathContainsNullByte(path: String)
+  /// `path.normalize` was given a Windows UNC-style path (exactly
+  /// two leading slashes after backslash unification, e.g.
+  /// `//server/share` or `\\server\share`). The `fsevent` module is
+  /// POSIX-only and rejects UNC paths so cross-platform code does
+  /// not silently lose the UNC prefix as it normalises. Three or
+  /// more leading slashes are still treated as a single leading
+  /// slash per POSIX `IEEE Std 1003.1-2017 §4.13`.
+  UncPathNotSupported(path: String)
   /// `Snapshot.from_entries` or `Snapshot.add_entry` saw two entries
   /// with the same normalised path.
   DuplicatePath(path: String)
