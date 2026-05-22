@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `automata/rrule`: `FREQ=HOURLY`, `FREQ=MINUTELY`, and `FREQ=SECONDLY` now expand correctly when no `BYHOUR` / `BYMINUTE` / (implicit) `BYSECOND` part is specified — previously the iterator collapsed sub-daily frequencies to one occurrence per day at the anchor's single hour/minute/second instead of walking the full 0..23 / 0..59 / 0..59 range per RFC 5545 §3.3.10. `FREQ=HOURLY;INTERVAL=2` and `FREQ=MINUTELY;INTERVAL=15` style rules now also yield the correct interval-stepped occurrences. Daily-and-coarser frequencies are unchanged. Follow-up to #38. (#55)
+
 ## [0.9.0] - 2026-05-20
 
 ### Changed
