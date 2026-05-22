@@ -72,7 +72,7 @@ pub fn normalize_inherits_anchor_components_test() {
 
   plan.by_hour |> should.equal([9])
   plan.by_minute |> should.equal([30])
-  plan.second |> should.equal(15)
+  plan.seconds |> should.equal([15])
   plan.by_month_day |> should.equal(Some([10]))
 }
 
@@ -755,4 +755,97 @@ pub fn freq_hourly_with_interval_round_trips_test() {
   let assert Ok(spec) = rrule.validate(raw)
   rrule.to_string(spec)
   |> should.equal("FREQ=HOURLY;INTERVAL=2")
+}
+
+// Issue #55: FREQ=HOURLY/MINUTELY/SECONDLY iterators should expand to all
+// hours / minutes / seconds within each day when no BY* part is given.
+// Matches python-dateutil.rrule and RFC 5545 §3.3.10.
+
+pub fn hourly_default_expands_to_every_hour_test() {
+  let spec = parse_and_validate("FREQ=HOURLY;COUNT=3")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  let assert rule_iterator.Yield(a, it2) = rule_iterator.step(iterator)
+  let assert rule_iterator.Yield(b, it3) = rule_iterator.step(it2)
+  let assert rule_iterator.Yield(c, _) = rule_iterator.step(it3)
+  a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
+  b |> should.equal(vdt(2026, 1, 1, 1, 0, 0))
+  c |> should.equal(vdt(2026, 1, 1, 2, 0, 0))
+}
+
+pub fn minutely_interval_15_expands_correctly_test() {
+  let spec = parse_and_validate("FREQ=MINUTELY;INTERVAL=15;COUNT=3")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  let assert rule_iterator.Yield(a, it2) = rule_iterator.step(iterator)
+  let assert rule_iterator.Yield(b, it3) = rule_iterator.step(it2)
+  let assert rule_iterator.Yield(c, _) = rule_iterator.step(it3)
+  a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
+  b |> should.equal(vdt(2026, 1, 1, 0, 15, 0))
+  c |> should.equal(vdt(2026, 1, 1, 0, 30, 0))
+}
+
+pub fn secondly_default_expands_to_every_second_test() {
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=3")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  let assert rule_iterator.Yield(a, it2) = rule_iterator.step(iterator)
+  let assert rule_iterator.Yield(b, it3) = rule_iterator.step(it2)
+  let assert rule_iterator.Yield(c, _) = rule_iterator.step(it3)
+  a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
+  b |> should.equal(vdt(2026, 1, 1, 0, 0, 1))
+  c |> should.equal(vdt(2026, 1, 1, 0, 0, 2))
+}
+
+pub fn hourly_with_explicit_byhour_still_works_test() {
+  // Regression guard: when BYHOUR is explicit, the iterator walks only
+  // those hours, not the full 0..23.
+  let spec = parse_and_validate("FREQ=HOURLY;BYHOUR=0,1,2;COUNT=3")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  let assert rule_iterator.Yield(a, it2) = rule_iterator.step(iterator)
+  let assert rule_iterator.Yield(b, it3) = rule_iterator.step(it2)
+  let assert rule_iterator.Yield(c, _) = rule_iterator.step(it3)
+  a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
+  b |> should.equal(vdt(2026, 1, 1, 1, 0, 0))
+  c |> should.equal(vdt(2026, 1, 1, 2, 0, 0))
+}
+
+pub fn daily_frequency_unaffected_by_subdaily_fix_test() {
+  // Regression guard: DAILY and coarser frequencies still take the
+  // anchor's hour/minute/second as their single occurrence per day.
+  let spec = parse_and_validate("FREQ=DAILY;COUNT=3")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  let assert rule_iterator.Yield(a, it2) = rule_iterator.step(iterator)
+  let assert rule_iterator.Yield(b, it3) = rule_iterator.step(it2)
+  let assert rule_iterator.Yield(c, _) = rule_iterator.step(it3)
+  a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
+  b |> should.equal(vdt(2026, 1, 2, 0, 0, 0))
+  c |> should.equal(vdt(2026, 1, 3, 0, 0, 0))
 }

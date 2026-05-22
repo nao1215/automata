@@ -18,7 +18,7 @@ pub type RRulePlan {
     by_month_day: Option(List(Int)),
     by_hour: List(Int),
     by_minute: List(Int),
-    second: Int,
+    seconds: List(Int),
   )
 }
 
@@ -28,10 +28,11 @@ pub fn normalize(
 ) -> Result(RRulePlan, NormalizeError) {
   case calendar.is_valid_datetime(anchor) {
     False -> Error(InvalidAnchor(anchor))
-    True ->
+    True -> {
+      let frequency = validator.frequency(spec)
       Ok(RRulePlan(
         anchor: anchor,
-        frequency: validator.frequency(spec),
+        frequency: frequency,
         interval: validator.interval(spec),
         end_condition: validator.end_condition(spec),
         by_day: default_by_day(spec, anchor),
@@ -39,14 +40,78 @@ pub fn normalize(
         by_month_day: default_by_month_day(spec, anchor),
         by_hour: case validator.by_hour(spec) {
           Some(values) -> values
-          None -> [anchor.time.hour]
+          None -> default_by_hour(frequency, anchor)
         },
         by_minute: case validator.by_minute(spec) {
           Some(values) -> values
-          None -> [anchor.time.minute]
+          None -> default_by_minute(frequency, anchor)
         },
-        second: anchor.time.second,
+        seconds: default_seconds(frequency, anchor),
       ))
+    }
+  }
+}
+
+// RFC 5545 §3.3.10: when the BY* part for a smaller unit than the
+// frequency is omitted, the rule expands to cover the full natural range.
+// Concretely:
+//   - FREQ=SECONDLY without BYSECOND → every second in the minute
+//   - FREQ=MINUTELY without BYMINUTE → every minute in the hour
+//   - FREQ=HOURLY without BYHOUR → every hour in the day
+// Without these defaults the iterator collapses sub-daily frequencies to
+// the anchor's single hour-of-day / minute-of-hour / second-of-minute and
+// the result is one occurrence per day instead of per hour/minute/second.
+
+fn default_by_hour(
+  frequency: validator.Frequency,
+  anchor: DateTime,
+) -> List(Int) {
+  case frequency {
+    validator.Secondly | validator.Minutely | validator.Hourly ->
+      range_inclusive(0, 23)
+    _ -> [anchor.time.hour]
+  }
+}
+
+fn default_by_minute(
+  frequency: validator.Frequency,
+  anchor: DateTime,
+) -> List(Int) {
+  case frequency {
+    validator.Secondly | validator.Minutely -> range_inclusive(0, 59)
+    _ -> [anchor.time.minute]
+  }
+}
+
+fn default_seconds(
+  frequency: validator.Frequency,
+  anchor: DateTime,
+) -> List(Int) {
+  case frequency {
+    validator.Secondly -> range_inclusive(0, 59)
+    _ -> [anchor.time.second]
+  }
+}
+
+fn range_inclusive(from: Int, to: Int) -> List(Int) {
+  range_loop(from, to, [])
+}
+
+fn range_loop(current: Int, to: Int, acc: List(Int)) -> List(Int) {
+  case current > to {
+    True -> reverse_list(acc)
+    False -> range_loop(current + 1, to, [current, ..acc])
+  }
+}
+
+fn reverse_list(xs: List(a)) -> List(a) {
+  reverse_loop(xs, [])
+}
+
+fn reverse_loop(xs: List(a), acc: List(a)) -> List(a) {
+  case xs {
+    [] -> acc
+    [x, ..rest] -> reverse_loop(rest, [x, ..acc])
   }
 }
 

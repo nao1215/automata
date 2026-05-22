@@ -36,7 +36,7 @@ pub fn first_time_on_day(plan: RRulePlan, date: Date) -> DateTime {
     time: Time(
       hour: list_first(plan.by_hour),
       minute: list_first(plan.by_minute),
-      second: plan.second,
+      second: list_first(plan.seconds),
     ),
   )
 }
@@ -46,7 +46,7 @@ pub fn next_time_on_day(
   date: Date,
   search: DateTime,
 ) -> Option(DateTime) {
-  find_time(plan.by_hour, plan.by_minute, date, plan.second, search)
+  find_time(plan.by_hour, plan.by_minute, plan.seconds, date, search)
 }
 
 pub fn day_matches(plan: RRulePlan, date: Date) -> Bool {
@@ -72,7 +72,7 @@ fn base_match(plan: RRulePlan, at: DateTime) -> Bool {
   && day_matches(plan, at.date)
   && list.any(plan.by_hour, fn(hour) { hour == at.time.hour })
   && list.any(plan.by_minute, fn(minute) { minute == at.time.minute })
-  && at.time.second == plan.second
+  && list.any(plan.seconds, fn(second) { second == at.time.second })
 }
 
 fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
@@ -180,8 +180,23 @@ pub fn next_occurrence(
               case next_time_on_day(plan, start.date, start) {
                 Some(found) ->
                   case within_until(plan.end_condition, found) {
-                    True -> Some(found)
                     False -> None
+                    True ->
+                      // For sub-daily frequencies with INTERVAL > 1 the
+                      // expanded BY* lists can yield candidates that match
+                      // hour/minute/second but not the interval step (e.g.
+                      // FREQ=MINUTELY;INTERVAL=15 should yield T00:00 then
+                      // T00:15, not T00:01). Re-check `aligned` and advance
+                      // one second on miss so the iterator skips the gap.
+                      case aligned(plan, found) {
+                        True -> Some(found)
+                        False ->
+                          next_occurrence(
+                            plan,
+                            search: calendar.add_seconds(found, 1),
+                            guard: guard + 1,
+                          )
+                      }
                   }
                 None ->
                   next_occurrence(
@@ -360,19 +375,19 @@ fn weekday_occurrences_in_year_loop(
 fn find_time(
   hours: List(Int),
   minutes: List(Int),
+  seconds: List(Int),
   date: Date,
-  second: Int,
   search: DateTime,
 ) -> Option(DateTime) {
   case hours {
     [] -> None
     [hour, ..rest_hours] ->
       case hour < search.time.hour {
-        True -> find_time(rest_hours, minutes, date, second, search)
+        True -> find_time(rest_hours, minutes, seconds, date, search)
         False ->
-          case find_minute(hour, minutes, date, second, search) {
+          case find_minute(hour, minutes, seconds, date, search) {
             Some(found) -> Some(found)
-            None -> find_time(rest_hours, minutes, date, second, search)
+            None -> find_time(rest_hours, minutes, seconds, date, search)
           }
       }
   }
@@ -381,17 +396,34 @@ fn find_time(
 fn find_minute(
   hour: Int,
   minutes: List(Int),
+  seconds: List(Int),
   date: Date,
-  second: Int,
   search: DateTime,
 ) -> Option(DateTime) {
   case minutes {
     [] -> None
     [minute, ..rest] -> {
-      let candidate =
-        DateTime(date:, time: Time(hour:, minute:, second: second))
+      case find_second(hour, minute, seconds, date, search) {
+        Some(found) -> Some(found)
+        None -> find_minute(hour, rest, seconds, date, search)
+      }
+    }
+  }
+}
+
+fn find_second(
+  hour: Int,
+  minute: Int,
+  seconds: List(Int),
+  date: Date,
+  search: DateTime,
+) -> Option(DateTime) {
+  case seconds {
+    [] -> None
+    [second, ..rest] -> {
+      let candidate = DateTime(date:, time: Time(hour:, minute:, second:))
       case calendar.less_than(candidate, search) {
-        True -> find_minute(hour, rest, date, second, search)
+        True -> find_second(hour, minute, rest, date, search)
         False -> Some(candidate)
       }
     }
