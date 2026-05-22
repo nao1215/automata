@@ -1,3 +1,9 @@
+//// Public runtime types for filesystem-event operations and the diff
+//// snapshots produced by [`automata/fsevent`](./fsevent.html). Despite
+//// the `ast` suffix, these are the domain types every fsevent caller
+//// needs at runtime — `Op`, `Event`, `Snapshot`, etc. — not parser
+//// internals.
+
 /// File-system operation observed between two snapshots.
 ///
 /// Mirrors Go fsnotify's `Op` constants: a single high-level event may

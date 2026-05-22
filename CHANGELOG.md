@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `automata/rrule`: `FREQ=HOURLY`, `FREQ=MINUTELY`, and `FREQ=SECONDLY` now expand correctly when no `BYHOUR` / `BYMINUTE` / (implicit) `BYSECOND` part is specified — previously the iterator collapsed sub-daily frequencies to one occurrence per day at the anchor's single hour/minute/second instead of walking the full 0..23 / 0..59 / 0..59 range per RFC 5545 §3.3.10. `FREQ=HOURLY;INTERVAL=2` and `FREQ=MINUTELY;INTERVAL=15` style rules now also yield the correct interval-stepped occurrences. Daily-and-coarser frequencies are unchanged. Follow-up to #38. (#55)
 
+### Documentation
+
+- Added module-header docstrings to all five `*/ast.gleam` modules (`automata/cron/ast`, `automata/rrule/ast`, `automata/ical/ast`, `automata/fsevent/ast`, `automata/schedule/ast`) clarifying that they hold the public runtime domain types every caller needs (e.g. `ValidDateTime`, `Weekday`, `Op`), not parser internals. Each docstring links back to the corresponding feature module where the parse / validate / iterate entry points live. (#54)
+
 ## [0.9.0] - 2026-05-20
 
 ### Changed
