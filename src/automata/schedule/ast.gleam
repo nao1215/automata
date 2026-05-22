@@ -1,3 +1,14 @@
+//// Public runtime types for the unified schedule API: `Date`, `Time`,
+//// `DateTime`, `ValidDateTime`, `Weekday`, `Boundary`, and the smart
+//// constructors / stringifiers that every cron / RRULE / iCal / schedule
+//// caller needs to build the `anchor` and `after` arguments. The parse /
+//// validate / iterate entry points live in
+//// [`automata/schedule`](./schedule.html) and the feature-specific
+//// modules ([`automata/cron`](./cron.html),
+//// [`automata/rrule`](./rrule.html),
+//// [`automata/ical`](./ical.html)). Despite the `ast` suffix, these are
+//// the runtime domain types, not parser internals.
+
 import gleam/int
 import gleam/result
 

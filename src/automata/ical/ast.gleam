@@ -1,3 +1,9 @@
+//// Public runtime types for iCalendar (RFC 5545) content lines and their
+//// validated component shapes. The parse / encode entry points live in
+//// [`automata/ical`](./ical.html). Despite the `ast` suffix, these are
+//// the domain types every iCalendar caller needs at runtime —
+//// `Parameter`, `ContentLine`, `Component`, etc. — not parser internals.
+
 /// 一つの content line のパラメータ (NAME=VALUE)。
 /// NAME は大文字正規化済み。VALUE は囲み quote を剥がした素の値。
 pub type Parameter {
