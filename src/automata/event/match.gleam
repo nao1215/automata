@@ -7,7 +7,10 @@ import gleam/option.{None, Some}
 /// For body-shape predicates, see `automata/event/builtin/match`.
 /// Native Gleam `case` is the preferred mechanism for matching event
 /// bodies; this module only covers source/metadata level routing.
-pub fn has_source_kind(event event: Event(body), kind kind: SourceKind) -> Bool {
+pub fn has_source_kind(
+  event event: Event(body),
+  kind kind: SourceKind,
+) -> Bool {
   event.source.kind == kind
 }
 

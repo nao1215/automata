@@ -178,7 +178,10 @@ fn next_hour_start(candidate: DateTime) -> DateTime {
   )
 }
 
-fn roll_to_next_matching_month(plan: CronPlan, candidate: DateTime) -> DateTime {
+fn roll_to_next_matching_month(
+  plan: CronPlan,
+  candidate: DateTime,
+) -> DateTime {
   // Reset to day 1 of the next month so the day-search inside
   // `find_next` can scan from the start of that month. Carrying the
   // current `candidate.date.day` across the month boundary would skip

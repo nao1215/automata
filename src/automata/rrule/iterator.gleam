@@ -19,7 +19,10 @@ pub type Step {
   Done
 }
 
-pub fn after(plan plan: RRulePlan, boundary boundary: Boundary) -> RRuleIterator {
+pub fn after(
+  plan plan: RRulePlan,
+  boundary boundary: Boundary,
+) -> RRuleIterator {
   let cursor = start_cursor(plan, boundary)
   RRuleIterator(
     plan: plan,

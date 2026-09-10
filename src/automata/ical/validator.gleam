@@ -922,7 +922,9 @@ fn do_classify_tz_children(
   }
 }
 
-fn validate_tz_rule(comp: RawComponent) -> Result(TimezoneRule, ValidationError) {
+fn validate_tz_rule(
+  comp: RawComponent,
+) -> Result(TimezoneRule, ValidationError) {
   let RawComponent(properties: props, kind: kind, ..) = comp
   case find_dt(props, "DTSTART") {
     Error(err) -> Error(err)
@@ -1880,7 +1882,11 @@ pub fn add_alarm(event: Event, alarm: Alarm) -> Event {
   Event(..event, alarms: list.append(event.alarms, [alarm]))
 }
 
-pub fn with_event_x_property(event: Event, name: String, value: String) -> Event {
+pub fn with_event_x_property(
+  event: Event,
+  name: String,
+  value: String,
+) -> Event {
   Event(..event, x_properties: dict.insert(event.x_properties, name, value))
 }
 
@@ -1888,7 +1894,10 @@ pub fn with_event_x_property(event: Event, name: String, value: String) -> Event
 // Builders: Todo
 // ============================================================
 
-pub fn new_todo(uid uid: String, dtstamp dtstamp: schedule_ast.DateTime) -> Todo {
+pub fn new_todo(
+  uid uid: String,
+  dtstamp dtstamp: schedule_ast.DateTime,
+) -> Todo {
   Todo(
     uid: uid,
     dtstamp: dtstamp,
@@ -2040,7 +2049,10 @@ pub fn with_freebusy_dtstart(
   FreeBusy(..fb, dtstart: Some(dt))
 }
 
-pub fn with_freebusy_dtend(fb: FreeBusy, dt: schedule_ast.DateTime) -> FreeBusy {
+pub fn with_freebusy_dtend(
+  fb: FreeBusy,
+  dt: schedule_ast.DateTime,
+) -> FreeBusy {
   FreeBusy(..fb, dtend: Some(dt))
 }
 
@@ -2171,6 +2183,10 @@ pub fn add_alarm_attendee(alarm: Alarm, value: String) -> Alarm {
   Alarm(..alarm, attendees: list.append(alarm.attendees, [value]))
 }
 
-pub fn with_alarm_x_property(alarm: Alarm, name: String, value: String) -> Alarm {
+pub fn with_alarm_x_property(
+  alarm: Alarm,
+  name: String,
+  value: String,
+) -> Alarm {
   Alarm(..alarm, x_properties: dict.insert(alarm.x_properties, name, value))
 }
