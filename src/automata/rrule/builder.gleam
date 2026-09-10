@@ -200,7 +200,9 @@ fn check_weekday_items(
   }
 }
 
-fn translate_parser_error(error: parser.ParseError) -> validator.ValidationError {
+fn translate_parser_error(
+  error: parser.ParseError,
+) -> validator.ValidationError {
   case error {
     parser.InvalidRule(value:) ->
       validator.InvalidPartValue(part: validator.FreqPart, value: value)
@@ -262,7 +264,9 @@ fn append_weekday_part(
   }
 }
 
-fn weekday_specifier_to_string(specifier: validator.WeekdaySpecifier) -> String {
+fn weekday_specifier_to_string(
+  specifier: validator.WeekdaySpecifier,
+) -> String {
   case specifier {
     validator.EveryWeekday(day) -> weekday_to_string(day)
     validator.NthWeekday(ordinal, day) ->

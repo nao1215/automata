@@ -54,7 +54,10 @@ pub fn is_custom(event event: Event(EventBody)) -> Bool {
   }
 }
 
-pub fn is_custom_kind(event event: Event(EventBody), kind kind: String) -> Bool {
+pub fn is_custom_kind(
+  event event: Event(EventBody),
+  kind kind: String,
+) -> Bool {
   case event.body {
     body.Custom(name, _) -> name == kind
     _ -> False

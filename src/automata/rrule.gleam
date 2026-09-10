@@ -131,7 +131,9 @@ pub fn next_after_plan(
   |> option.map(schedule_ast.unsafe_assume_valid)
 }
 
-pub fn builder(frequency frequency: validator.Frequency) -> rule_builder.Builder {
+pub fn builder(
+  frequency frequency: validator.Frequency,
+) -> rule_builder.Builder {
   rule_builder.builder(frequency: frequency)
 }
 

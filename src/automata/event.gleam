@@ -52,7 +52,10 @@ pub fn with_correlation_id(
   Event(..event, metadata: metadata.with_correlation_id(event.metadata, id))
 }
 
-pub fn with_causation_id(event event: Event(body), id id: String) -> Event(body) {
+pub fn with_causation_id(
+  event event: Event(body),
+  id id: String,
+) -> Event(body) {
   Event(..event, metadata: metadata.with_causation_id(event.metadata, id))
 }
 

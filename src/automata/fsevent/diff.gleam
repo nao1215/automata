@@ -54,7 +54,10 @@ pub fn diff(
 /// the canonical op set the differ would assign before rename
 /// detection runs. Exposed for testing.
 @internal
-pub fn compare_entry(old old: Option(Entry), new new: Option(Entry)) -> Set(Op) {
+pub fn compare_entry(
+  old old: Option(Entry),
+  new new: Option(Entry),
+) -> Set(Op) {
   case old, new {
     None, None -> op.empty_ops()
     None, Some(e) -> ops_for_creation(e)

@@ -41,7 +41,10 @@ pub fn with_correlation_id(
 }
 
 /// Set the causation id pointing at the immediate parent event.
-pub fn with_causation_id(metadata metadata: Metadata, id id: String) -> Metadata {
+pub fn with_causation_id(
+  metadata metadata: Metadata,
+  id id: String,
+) -> Metadata {
   Metadata(..metadata, causation_id: Some(id))
 }
 
@@ -60,7 +63,10 @@ pub fn with_attribute(
 }
 
 /// Look up an attribute by key. Returns `None` when no value is set.
-pub fn attribute(metadata metadata: Metadata, key key: String) -> Option(String) {
+pub fn attribute(
+  metadata metadata: Metadata,
+  key key: String,
+) -> Option(String) {
   case dict.get(metadata.attributes, key) {
     Ok(value) -> Some(value)
     Error(_) -> None

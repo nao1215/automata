@@ -622,7 +622,11 @@ pub fn add_alarm(event: Event, alarm: Alarm) -> Event {
   ical_validator.add_alarm(event, alarm)
 }
 
-pub fn with_event_x_property(event: Event, name: String, value: String) -> Event {
+pub fn with_event_x_property(
+  event: Event,
+  name: String,
+  value: String,
+) -> Event {
   ical_validator.with_event_x_property(event, name, value)
 }
 
@@ -630,7 +634,10 @@ pub fn with_event_x_property(event: Event, name: String, value: String) -> Event
 // Builders: Todo
 // ============================================================
 
-pub fn new_todo(uid uid: String, dtstamp dtstamp: schedule_ast.DateTime) -> Todo {
+pub fn new_todo(
+  uid uid: String,
+  dtstamp dtstamp: schedule_ast.DateTime,
+) -> Todo {
   ical_validator.new_todo(uid: uid, dtstamp: dtstamp)
 }
 
@@ -747,7 +754,10 @@ pub fn with_freebusy_dtstart(
   ical_validator.with_freebusy_dtstart(fb, dt)
 }
 
-pub fn with_freebusy_dtend(fb: FreeBusy, dt: schedule_ast.DateTime) -> FreeBusy {
+pub fn with_freebusy_dtend(
+  fb: FreeBusy,
+  dt: schedule_ast.DateTime,
+) -> FreeBusy {
   ical_validator.with_freebusy_dtend(fb, dt)
 }
 
@@ -860,6 +870,10 @@ pub fn add_alarm_attendee(alarm: Alarm, value: String) -> Alarm {
   ical_validator.add_alarm_attendee(alarm, value)
 }
 
-pub fn with_alarm_x_property(alarm: Alarm, name: String, value: String) -> Alarm {
+pub fn with_alarm_x_property(
+  alarm: Alarm,
+  name: String,
+  value: String,
+) -> Alarm {
   ical_validator.with_alarm_x_property(alarm, name, value)
 }

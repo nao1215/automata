@@ -348,7 +348,10 @@ fn weekday_occurrences_in_month_loop(
   }
 }
 
-fn weekday_occurrences_in_year(weekday: Weekday, year: Int) -> List(Occurrence) {
+fn weekday_occurrences_in_year(
+  weekday: Weekday,
+  year: Int,
+) -> List(Occurrence) {
   weekday_occurrences_in_year_loop(weekday, year, 1, [])
 }
 

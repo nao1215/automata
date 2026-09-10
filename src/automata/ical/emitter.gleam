@@ -430,7 +430,9 @@ fn render_alarm(alarm: ical_validator.Alarm) -> List(String) {
 // Unknown components (raw passthrough)
 // ============================================================
 
-fn render_unknown_component(uc: ical_validator.UnknownComponent) -> List(String) {
+fn render_unknown_component(
+  uc: ical_validator.UnknownComponent,
+) -> List(String) {
   let ical_validator.UnknownComponent(
     kind: kind,
     properties: props,

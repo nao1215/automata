@@ -31,7 +31,9 @@ pub type CronError {
 /// month day-of-week`) into a `RawCron` AST. Returns a `ParseError`
 /// for syntactic problems such as wrong field count or empty fields.
 /// Range and alias validation is done separately by `validate/1`.
-pub fn parse(input input: String) -> Result(cron_ast.RawCron, parser.ParseError) {
+pub fn parse(
+  input input: String,
+) -> Result(cron_ast.RawCron, parser.ParseError) {
   parser.parse(input: input)
 }
 
