@@ -5,6 +5,7 @@
 [![Downloads](https://img.shields.io/hexpm/dt/automata)](https://hex.pm/packages/automata)
 [![Hex Docs](https://img.shields.io/badge/hexdocs-online-purple)](https://hexdocs.pm/automata)
 [![License](https://img.shields.io/hexpm/l/automata)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/automata/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/automata)
 
 Cron, RRULE, retries, filesystem events, and finite automata for
 Gleam. Pure data: every module produces the same answers on the
