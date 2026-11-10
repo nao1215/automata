@@ -411,16 +411,19 @@ are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Verifying releases
 
-Each GitHub Release attaches the package tarball (`automata-<version>.tar`), `checksums.txt`, a cosign signature bundle for it (`checksums.txt.sigstore.json`) and the build provenance (`automata-<version>.intoto.jsonl`). Download them from the release page, then verify:
+Each GitHub Release attaches the Hex package tarball (`automata-<version>.tar`),
+`checksums.txt`, a cosign signature bundle (`checksums.txt.sigstore.json`) and
+build provenance (`automata-<version>.intoto.jsonl`). Download the assets, then:
 
 ```sh
 gh attestation verify automata-<version>.tar --repo nao1215/automata
 
-sha256sum -c checksums.txt
-cosign verify-blob --bundle checksums.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/nao1215/automata/' \
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/nao1215/automata/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
+sha256sum --check checksums.txt
 ```
 
 ## License
