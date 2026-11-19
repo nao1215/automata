@@ -1,5 +1,6 @@
 import automata/internal/calendar
 import automata/schedule/ast as schedule_ast
+import gleam/list
 import gleam/order
 import gleeunit/should
 
@@ -277,4 +278,84 @@ pub fn add_months_negative_walks_backwards_test() {
 
   calendar.add_months(schedule_ast.datetime(2026, 1, 15, 9, 0, 0), -2)
   |> should.equal(schedule_ast.datetime(2025, 11, 15, 9, 0, 0))
+}
+
+// --- boundaries found by mutation testing ----------------------------------
+
+fn dt(
+  y: Int,
+  mo: Int,
+  d: Int,
+  h: Int,
+  mi: Int,
+  s: Int,
+) -> schedule_ast.DateTime {
+  schedule_ast.DateTime(
+    date: schedule_ast.Date(year: y, month: mo, day: d),
+    time: schedule_ast.Time(hour: h, minute: mi, second: s),
+  )
+}
+
+pub fn is_valid_time_accepts_only_the_wall_clock_range_test() {
+  calendar.is_valid_time(schedule_ast.Time(0, 0, 0)) |> should.equal(True)
+  calendar.is_valid_time(schedule_ast.Time(23, 59, 59)) |> should.equal(True)
+  calendar.is_valid_time(schedule_ast.Time(24, 0, 0)) |> should.equal(False)
+  calendar.is_valid_time(schedule_ast.Time(23, 60, 0)) |> should.equal(False)
+  calendar.is_valid_time(schedule_ast.Time(23, 59, 60)) |> should.equal(False)
+  calendar.is_valid_time(schedule_ast.Time(-1, 0, 0)) |> should.equal(False)
+  calendar.is_valid_time(schedule_ast.Time(0, -1, 0)) |> should.equal(False)
+  calendar.is_valid_time(schedule_ast.Time(0, 0, -1)) |> should.equal(False)
+}
+
+pub fn is_valid_date_accepts_the_last_day_of_each_month_test() {
+  calendar.is_valid_date(schedule_ast.Date(2024, 12, 31)) |> should.equal(True)
+  calendar.is_valid_date(schedule_ast.Date(2024, 2, 29)) |> should.equal(True)
+  calendar.is_valid_date(schedule_ast.Date(2025, 2, 29)) |> should.equal(False)
+  calendar.is_valid_date(schedule_ast.Date(2024, 13, 1)) |> should.equal(False)
+  calendar.is_valid_date(schedule_ast.Date(2024, 0, 1)) |> should.equal(False)
+  calendar.is_valid_date(schedule_ast.Date(2024, 4, 0)) |> should.equal(False)
+  calendar.is_valid_datetime(dt(2024, 2, 29, 23, 59, 59))
+  |> should.equal(True)
+  calendar.is_valid_datetime(dt(2024, 2, 29, 24, 0, 0))
+  |> should.equal(False)
+  calendar.is_valid_datetime(dt(2024, 2, 30, 0, 0, 0))
+  |> should.equal(False)
+}
+
+pub fn days_since_epoch_matches_python_toordinal_test() {
+  // Expected values from Python's datetime.date(y, m, d).toordinal(),
+  // an independent proleptic Gregorian day count with 0001-01-01 = 1.
+  [
+    #(schedule_ast.Date(1, 1, 1), 1),
+    #(schedule_ast.Date(1970, 1, 1), 719_163),
+    #(schedule_ast.Date(2000, 2, 29), 730_179),
+    #(schedule_ast.Date(2000, 3, 1), 730_180),
+    #(schedule_ast.Date(1900, 3, 1), 693_655),
+    #(schedule_ast.Date(2024, 12, 31), 739_251),
+    #(schedule_ast.Date(2100, 3, 1), 766_704),
+  ]
+  |> list.each(fn(case_) {
+    let #(date, ordinal) = case_
+    calendar.days_since_epoch(date) |> should.equal(ordinal)
+  })
+}
+
+pub fn stepping_backwards_crosses_minute_hour_day_month_and_year_test() {
+  calendar.add_minutes(dt(2024, 3, 1, 10, 1, 30), -1)
+  |> should.equal(dt(2024, 3, 1, 10, 0, 30))
+  calendar.add_minutes(dt(2024, 3, 1, 10, 0, 30), -1)
+  |> should.equal(dt(2024, 3, 1, 9, 59, 30))
+  calendar.add_minutes(dt(2024, 3, 1, 0, 0, 30), -1)
+  |> should.equal(dt(2024, 2, 29, 23, 59, 30))
+  calendar.add_days(dt(2024, 3, 2, 8, 0, 0), -1)
+  |> should.equal(dt(2024, 3, 1, 8, 0, 0))
+  calendar.add_days(dt(2025, 1, 1, 8, 0, 0), -1)
+  |> should.equal(dt(2024, 12, 31, 8, 0, 0))
+}
+
+pub fn set_month_and_set_year_clamp_to_the_month_end_test() {
+  calendar.set_month(dt(2024, 1, 31, 0, 0, 0), 2)
+  |> should.equal(dt(2024, 2, 29, 0, 0, 0))
+  calendar.set_year(dt(2024, 2, 29, 0, 0, 0), 2025)
+  |> should.equal(dt(2025, 2, 28, 0, 0, 0))
 }

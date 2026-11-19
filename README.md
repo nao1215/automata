@@ -412,6 +412,15 @@ Development setup, code style, and the contribution flow are
 documented in [CONTRIBUTING.md](CONTRIBUTING.md). Released changes
 are tracked in [CHANGELOG.md](CHANGELOG.md).
 
+## Testing
+
+| Technique | Bug class caught here |
+|---|---|
+| Examples and unit tests | [Wrong parses, occurrences, diffs and retry decisions](doc/testing.md#examples-and-unit-tests) |
+| Generated properties | [Automata, durations and iCalendar text that do not round-trip](doc/testing.md#generated-properties) |
+| Differential testing | [Cron searches that skip or invent a firing](doc/testing.md#differential-testing) |
+| Mutation testing | [Assertions that miss a changed operator or branch](doc/testing.md#mutation-testing) |
+
 ## Verifying releases
 
 Each GitHub Release attaches the Hex package tarball (`automata-<version>.tar`),
