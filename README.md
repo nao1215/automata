@@ -39,7 +39,6 @@ accepting predicate. Build one with `automata.new`, advance it with
 
 ```gleam
 import automata
-import gleam/io
 
 pub type Door {
   Closed
@@ -72,10 +71,10 @@ pub fn main() {
       accepting: fn(state) { state == Open },
     )
 
-  automata.run(dfa, [OpenIt, CloseIt, LockIt]) |> io.debug
+  automata.run(dfa, [OpenIt, CloseIt, LockIt]) |> echo
   // -> Locked
 
-  automata.accepts(dfa, [OpenIt]) |> io.debug
+  automata.accepts(dfa, [OpenIt]) |> echo
   // -> True
 }
 ```
@@ -88,7 +87,6 @@ symbols can be your own types, `Int`, or `String`.
 ```gleam
 import automata/cron
 import automata/schedule/ast as schedule_ast
-import gleam/io
 
 pub fn main() {
   let assert Ok(raw) = cron.parse("*/15 9-17 * * MON-FRI")
@@ -103,7 +101,7 @@ pub fn main() {
       second: 0,
     )
 
-  cron.next_after(spec, after: after) |> io.debug
+  cron.next_after(spec, after: after) |> echo
 }
 ```
 
@@ -182,7 +180,6 @@ per RFC 5545 §3.1, §3.2, and §3.3.11.
 
 ```gleam
 import automata/ical
-import gleam/io
 import gleam/list
 import gleam/option
 
@@ -198,7 +195,7 @@ pub fn main() {
   ical.events(cal)
   |> list.map(ical.event_summary)
   |> list.map(option.unwrap(_, ""))
-  |> io.debug
+  |> echo
   // -> ["Coffee"]
 }
 ```
@@ -245,7 +242,6 @@ import automata/event/builtin/body
 import automata/event/builtin/filter as builtin_filter
 import automata/event/filter
 import automata/fsevent/ast as fs_ast
-import automata/schedule/ast as schedule_ast
 
 pub fn cron_event(now) {
   // Smart constructor: in the common case `source_id == plan_id` and
