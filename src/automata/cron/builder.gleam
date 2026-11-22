@@ -1,12 +1,4 @@
-import automata/cron/ast.{
-  type Field, DayOfMonth, DayOfWeek, Expression, Hour, Minute, Month,
-}
-import automata/cron/parser
 import automata/cron/validator
-import gleam/int
-import gleam/list
-import gleam/option.{type Option, None, Some}
-import gleam/string
 
 /// Mutable-style cron builder. `opaque` so the only way to populate
 /// fields is the `with_*` API and the only way to extract a validated
@@ -92,98 +84,11 @@ pub fn with_day_of_week(
 pub fn build(
   builder builder: Builder,
 ) -> Result(validator.ValidCron, validator.ValidationError) {
-  case first_empty_selector(builder) {
-    Some(field) -> Error(validator.InvalidList(field: field, value: ""))
-    None -> {
-      let rendered =
-        string.join(
-          [
-            selector_to_string(builder.minute),
-            selector_to_string(builder.hour),
-            selector_to_string(builder.day_of_month),
-            selector_to_string(builder.month),
-            selector_to_string(builder.day_of_week),
-          ],
-          with: " ",
-        )
-
-      case parser.parse(input: rendered) {
-        Ok(raw) -> validator.validate(raw)
-        Error(error) ->
-          Error(case error {
-            parser.UnsupportedSyntax(field:, value:) ->
-              validator.UnsupportedSyntax(field:, value:)
-            parser.EmptyField(field:) ->
-              validator.InvalidList(field:, value: rendered)
-            parser.InvalidExpression(value:) ->
-              validator.InvalidList(field: Expression, value:)
-            parser.InvalidFieldCount(expected: _, actual: _) ->
-              validator.InvalidList(field: Expression, value: rendered)
-            // Unreachable in practice: the builder composes a 5-field
-            // expression from typed selectors, never an `@` nickname.
-            parser.RebootNotSupported(value:) ->
-              validator.UnsupportedSyntax(field: Expression, value:)
-          })
-      }
-    }
-  }
-}
-
-fn first_empty_selector(builder: Builder) -> Option(Field) {
-  case selector_is_empty(builder.minute) {
-    True -> Some(Minute)
-    False ->
-      case selector_is_empty(builder.hour) {
-        True -> Some(Hour)
-        False ->
-          case selector_is_empty(builder.day_of_month) {
-            True -> Some(DayOfMonth)
-            False ->
-              case selector_is_empty(builder.month) {
-                True -> Some(Month)
-                False ->
-                  case selector_is_empty(builder.day_of_week) {
-                    True -> Some(DayOfWeek)
-                    False -> None
-                  }
-              }
-          }
-      }
-  }
-}
-
-fn selector_is_empty(selector: validator.Selector) -> Bool {
-  case selector {
-    validator.Any -> False
-    validator.Values(items) -> items == []
-  }
-}
-
-fn selector_to_string(selector: validator.Selector) -> String {
-  case selector {
-    validator.Any -> "*"
-    validator.Values(items) ->
-      items
-      |> list.map(item_to_string)
-      |> string.join(with: ",")
-  }
-}
-
-fn item_to_string(item: validator.Item) -> String {
-  case item {
-    validator.Exact(value) -> int.to_string(value)
-    validator.Range(start, end) ->
-      int.to_string(start) <> "-" <> int.to_string(end)
-    validator.Step(base, step) ->
-      step_base_to_string(base) <> "/" <> int.to_string(step)
-  }
-}
-
-fn step_base_to_string(base: validator.StepBase) -> String {
-  case base {
-    validator.StepAny -> "*"
-    validator.StepExact(value) -> int.to_string(value)
-    validator.StepRange(start, end) ->
-      int.to_string(start) <> "-" <> int.to_string(end)
-  }
+  validator.from_selectors(
+    minute: builder.minute,
+    hour: builder.hour,
+    day_of_month: builder.day_of_month,
+    month: builder.month,
+    day_of_week: builder.day_of_week,
+  )
 }

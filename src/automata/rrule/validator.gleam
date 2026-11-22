@@ -4,6 +4,7 @@ import automata/schedule/ast as schedule_ast
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 pub type Frequency {
@@ -142,6 +143,145 @@ pub fn validate(
   raw raw: rule_ast.RawRRule,
 ) -> Result(ValidRRule, ValidationError) {
   collect(raw.parts, empty_partial_rule())
+}
+
+/// Validate rule parts built from typed values, as `validate` does for
+/// parsed text. Used by the builder so that its errors are classified
+/// from the values themselves.
+@internal
+pub fn from_parts(
+  frequency frequency: Frequency,
+  interval interval: Int,
+  end_condition end_condition: EndCondition,
+  by_day by_day: Option(List(WeekdaySpecifier)),
+  by_month by_month: Option(List(Int)),
+  by_month_day by_month_day: Option(List(Int)),
+  by_hour by_hour: Option(List(Int)),
+  by_minute by_minute: Option(List(Int)),
+) -> Result(ValidRRule, ValidationError) {
+  use _ <- result.try(case interval > 0 {
+    True -> Ok(Nil)
+    False -> Error(MustBePositive(part: IntervalPart, actual: interval))
+  })
+  use _ <- result.try(check_end_condition(end_condition))
+  use by_day <- result.try(check_weekday_list(by_day))
+  use by_month <- result.try(check_int_list(ByMonthPart, by_month, 1, 12, False))
+  use by_month_day <- result.try(check_int_list(
+    ByMonthDayPart,
+    by_month_day,
+    -31,
+    31,
+    True,
+  ))
+  use by_hour <- result.try(check_int_list(ByHourPart, by_hour, 0, 23, False))
+  use by_minute <- result.try(check_int_list(
+    ByMinutePart,
+    by_minute,
+    0,
+    59,
+    False,
+  ))
+  finalize(PartialRule(
+    frequency: Some(frequency),
+    interval: Some(interval),
+    end_condition:,
+    by_day:,
+    by_month:,
+    by_month_day:,
+    by_hour:,
+    by_minute:,
+  ))
+}
+
+fn check_end_condition(
+  end_condition: EndCondition,
+) -> Result(Nil, ValidationError) {
+  case end_condition {
+    Forever -> Ok(Nil)
+    Count(count) ->
+      case count > 0 {
+        True -> Ok(Nil)
+        False -> Error(MustBePositive(part: CountPart, actual: count))
+      }
+    Until(until) -> {
+      // Same rule as for parsed text: UNTIL must be a real date with a
+      // four-digit year.
+      let #(date, time_ok) = case until {
+        UntilDate(date) -> #(date, True)
+        UntilDateTime(datetime) -> #(
+          datetime.date,
+          calendar.is_valid_datetime(datetime),
+        )
+      }
+      case
+        time_ok
+        && date.year >= 0
+        && date.year <= 9999
+        && calendar.is_valid_date(date)
+      {
+        True -> Ok(Nil)
+        False -> Error(UntilMalformedDateTime(value: until_to_string(until)))
+      }
+    }
+  }
+}
+
+fn check_weekday_list(
+  values: Option(List(WeekdaySpecifier)),
+) -> Result(Option(List(WeekdaySpecifier)), ValidationError) {
+  case values {
+    None -> Ok(None)
+    Some([]) -> Error(InvalidList(part: ByDayPart, value: ""))
+    Some(items) ->
+      list.try_each(items, fn(item) {
+        case item {
+          NthWeekday(0, day) ->
+            Error(InvalidPartValue(
+              part: ByDayPart,
+              value: "0" <> schedule_ast.weekday_to_string(day),
+            ))
+          NthWeekday(_, _) | EveryWeekday(_) -> Ok(Nil)
+        }
+      })
+      |> result.replace(values)
+  }
+}
+
+fn check_int_list(
+  part: RulePart,
+  values: Option(List(Int)),
+  min: Int,
+  max: Int,
+  reject_zero: Bool,
+) -> Result(Option(List(Int)), ValidationError) {
+  case values {
+    None -> Ok(None)
+    Some([]) -> Error(InvalidList(part: part, value: ""))
+    Some(items) ->
+      list.try_each(items, fn(item) {
+        check_int(part, item, int.to_string(item), min, max, reject_zero)
+      })
+      |> result.replace(Some(dedup_sort(items, [])))
+  }
+}
+
+fn check_int(
+  part: RulePart,
+  number: Int,
+  text: String,
+  min: Int,
+  max: Int,
+  reject_zero: Bool,
+) -> Result(Nil, ValidationError) {
+  case reject_zero && number == 0 {
+    True -> Error(InvalidPartValue(part: part, value: text))
+    False ->
+      case number < min || number > max {
+        True ->
+          Error(OutOfRange(part: part, min: min, max: max, actual: number))
+        False -> Ok(Nil)
+      }
+  }
 }
 
 pub fn to_string(spec: ValidRRule) -> String {
@@ -510,23 +650,10 @@ fn parse_int_items(
       case int.parse(value) {
         Error(_) -> Error(InvalidNumber(part: part, value: value))
         Ok(number) ->
-          case reject_zero && number == 0 {
-            True -> Error(InvalidPartValue(part: part, value: value))
-            False ->
-              case number < min || number > max {
-                True ->
-                  Error(OutOfRange(
-                    part: part,
-                    min: min,
-                    max: max,
-                    actual: number,
-                  ))
-                False ->
-                  parse_int_items(rest, part, min, max, reject_zero, [
-                    number,
-                    ..acc
-                  ])
-              }
+          case check_int(part, number, value, min, max, reject_zero) {
+            Error(error) -> Error(error)
+            Ok(_) ->
+              parse_int_items(rest, part, min, max, reject_zero, [number, ..acc])
           }
       }
   }

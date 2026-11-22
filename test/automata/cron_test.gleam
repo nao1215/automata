@@ -230,6 +230,78 @@ pub fn builder_rejects_empty_selector_test() {
   )
 }
 
+pub fn builder_reports_negative_value_as_out_of_range_test() {
+  // The builder used to render -1 into "-1" and parse it back, which
+  // read as a malformed range.
+  cron.builder()
+  |> cron.with_minute(cron.at(value: -1))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.OutOfRange(
+      field: cron_ast.Minute,
+      min: 0,
+      max: 59,
+      actual: -1,
+    )),
+  )
+}
+
+pub fn builder_reports_negative_range_start_as_out_of_range_test() {
+  cron.builder()
+  |> cron.with_hour(cron.between(from: -3, to: 5))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.OutOfRange(
+      field: cron_ast.Hour,
+      min: 0,
+      max: 23,
+      actual: -3,
+    )),
+  )
+}
+
+pub fn builder_reports_negative_step_start_as_out_of_range_test() {
+  cron.builder()
+  |> cron.with_minute(cron.every_from(start: -5, step: 10))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.OutOfRange(
+      field: cron_ast.Minute,
+      min: 0,
+      max: 59,
+      actual: -5,
+    )),
+  )
+}
+
+pub fn builder_reports_reversed_range_test() {
+  cron.builder()
+  |> cron.with_hour(cron.between(from: 17, to: 9))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.InvalidRange(field: cron_ast.Hour, value: "17-9")),
+  )
+}
+
+pub fn builder_reports_bad_step_test() {
+  cron.builder()
+  |> cron.with_day_of_month(cron.every(step: 0))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.InvalidStep(field: cron_ast.DayOfMonth, value: "*/0")),
+  )
+}
+
+pub fn builder_reports_impossible_date_test() {
+  cron.builder()
+  |> cron.with_day_of_month(cron.at(value: 31))
+  |> cron.with_month(cron.at(value: 2))
+  |> cron.build
+  |> should.equal(
+    Error(cron_validator.ImpossibleDate(day_of_month: "31", month: "2")),
+  )
+}
+
 pub fn next_after_is_exclusive_test() {
   cron.next_after(
     parse_and_validate("0 0 1 1 *"),

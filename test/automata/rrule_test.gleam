@@ -700,6 +700,74 @@ pub fn builder_rejects_empty_by_hour_test() {
   )
 }
 
+pub fn builder_sorts_and_dedups_lists_like_parse_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_month_day([15, -1, 15])
+  |> rrule.with_by_hour([17, 9, 9])
+  |> rrule.with_by_minute([30, 0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate(
+      "FREQ=MONTHLY;BYMONTHDAY=-1,15;BYHOUR=9,17;BYMINUTE=0,30",
+    )),
+  )
+}
+
+pub fn builder_rejects_out_of_range_minute_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_by_minute([0, 60])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.OutOfRange(
+      part: rule_validator.ByMinutePart,
+      min: 0,
+      max: 59,
+      actual: 60,
+    )),
+  )
+}
+
+pub fn builder_rejects_zero_month_day_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_month_day([0])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByMonthDayPart,
+      value: "0",
+    )),
+  )
+}
+
+pub fn builder_rejects_impossible_until_date_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_date(schedule_ast.Date(year: 2026, month: 2, day: 30))
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.UntilMalformedDateTime(value: "20260230")),
+  )
+}
+
+pub fn builder_rejects_until_year_beyond_four_digits_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_date(schedule_ast.Date(year: 12_026, month: 1, day: 1))
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.UntilMalformedDateTime(value: "120260101")),
+  )
+}
+
+pub fn builder_rejects_numeric_weekday_for_weekly_test() {
+  rrule.builder(rule_validator.Weekly)
+  |> rrule.with_by_day([rrule.nth_weekday(ordinal: 1, day: schedule_ast.Monday)])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.NumericWeekdayRequiresMonthlyOrYearly(
+      frequency: rule_validator.Weekly,
+    )),
+  )
+}
+
 pub fn without_end_condition_clears_count_test() {
   rrule.builder(rule_validator.Daily)
   |> rrule.with_count(5)
