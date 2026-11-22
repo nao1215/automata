@@ -1168,7 +1168,7 @@ fn fold_categories(
   }
 }
 
-fn prepend_all(items: List(String), acc: List(String)) -> List(String) {
+fn prepend_all(items: List(a), acc: List(a)) -> List(a) {
   case items {
     [] -> acc
     [first, ..rest] -> prepend_all(rest, [first, ..acc])
@@ -1334,18 +1334,8 @@ fn fold_dt_lists(
     [first, ..rest] ->
       case parse_datetime_list(name, first) {
         Error(err) -> Error(err)
-        Ok(dts) -> fold_dt_lists(name, rest, prepend_dts(dts, acc))
+        Ok(dts) -> fold_dt_lists(name, rest, prepend_all(dts, acc))
       }
-  }
-}
-
-fn prepend_dts(
-  items: List(schedule_ast.DateTime),
-  acc: List(schedule_ast.DateTime),
-) -> List(schedule_ast.DateTime) {
-  case items {
-    [] -> acc
-    [first, ..rest] -> prepend_dts(rest, [first, ..acc])
   }
 }
 

@@ -1,7 +1,7 @@
 import automata/cron/ast.{
   type Field, type RawCron, DayOfMonth, DayOfWeek, Hour, Minute, Month,
 }
-import automata/internal/calendar
+import automata/internal/gregorian
 import gleam/int
 import gleam/list
 import gleam/result
@@ -245,9 +245,9 @@ fn schedule_possible(day_of_month: Selector, month: Selector) -> Bool {
   let days = selector_values(day_of_month, 1, 31, normalize_day_of_week: False)
 
   list.any(months, fn(month) {
-    let maximum = calendar.days_in_month(2024, month)
+    let maximum = gregorian.days_in_month(2024, month)
     list.any(days, fn(day) { day <= maximum })
-    || list.any(days, fn(day) { calendar.days_in_month(2025, month) >= day })
+    || list.any(days, fn(day) { gregorian.days_in_month(2025, month) >= day })
   })
 }
 
@@ -433,7 +433,8 @@ fn parse_value(
             False ->
               case aliases {
                 NoAliases -> Error(InvalidNumber(field: field, value: value))
-                _ -> Error(InvalidAlias(field: field, value: value))
+                MonthAliases | DayAliases ->
+                  Error(InvalidAlias(field: field, value: value))
               }
           }
       }
@@ -526,8 +527,9 @@ pub fn selector_values(
           False -> value
         }
       })
-      |> dedup_sort([])
-    False -> dedup_sort(values, [])
+      |> list.sort(by: int.compare)
+      |> list.unique
+    False -> list.unique(list.sort(values, by: int.compare))
   }
 }
 
@@ -555,24 +557,6 @@ fn inclusive_range(start: Int, stop: Int) -> List(Int) {
   case start > stop {
     True -> []
     False -> [start, ..inclusive_range(start + 1, stop)]
-  }
-}
-
-fn dedup_sort(values: List(Int), acc: List(Int)) -> List(Int) {
-  case list.sort(values, by: int.compare) {
-    [] -> list.reverse(acc)
-    [first, ..rest] -> dedup_sorted(rest, first, [first, ..acc])
-  }
-}
-
-fn dedup_sorted(rest: List(Int), previous: Int, acc: List(Int)) -> List(Int) {
-  case rest {
-    [] -> list.reverse(acc)
-    [value, ..tail] ->
-      case value == previous {
-        True -> dedup_sorted(tail, previous, acc)
-        False -> dedup_sorted(tail, value, [value, ..acc])
-      }
   }
 }
 

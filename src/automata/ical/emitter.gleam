@@ -4,6 +4,7 @@
 
 import automata/ical/ast.{type Parameter, type RawComponent, type RawProperty}
 import automata/ical/validator as ical_validator
+import automata/internal/digits
 import automata/rrule/ast as rule_ast
 import automata/schedule/ast as schedule_ast
 import gleam/dict
@@ -614,14 +615,20 @@ fn render_raw_rrule(raw: rule_ast.RawRRule) -> String {
 /// DATE-TIME emissions should go through [`render_datetime_utc`](#render_datetime_utc).
 fn render_date(dt: schedule_ast.DateTime) -> String {
   let schedule_ast.Date(year: y, month: mo, day: d) = dt.date
-  pad4(y) <> pad2(mo) <> pad2(d)
+  digits.pad4(y) <> digits.pad2(mo) <> digits.pad2(d)
 }
 
 fn render_datetime(dt: schedule_ast.DateTime) -> String {
   let schedule_ast.DateTime(date: date, time: time) = dt
   let schedule_ast.Date(year: y, month: mo, day: d) = date
   let schedule_ast.Time(hour: h, minute: mi, second: s) = time
-  pad4(y) <> pad2(mo) <> pad2(d) <> "T" <> pad2(h) <> pad2(mi) <> pad2(s)
+  digits.pad4(y)
+  <> digits.pad2(mo)
+  <> digits.pad2(d)
+  <> "T"
+  <> digits.pad2(h)
+  <> digits.pad2(mi)
+  <> digits.pad2(s)
 }
 
 /// Render a `DateTime` as the RFC 5545 UTC form (`FORM #2`): `YYYYMMDDTHHMMSSZ`
@@ -631,22 +638,6 @@ fn render_datetime(dt: schedule_ast.DateTime) -> String {
 /// preserves the UTC marker that the parser strips).
 fn render_datetime_utc(dt: schedule_ast.DateTime) -> String {
   render_datetime(dt) <> "Z"
-}
-
-fn pad2(n: Int) -> String {
-  case n < 10 {
-    True -> "0" <> int.to_string(n)
-    False -> int.to_string(n)
-  }
-}
-
-fn pad4(n: Int) -> String {
-  case n {
-    _ if n < 10 -> "000" <> int.to_string(n)
-    _ if n < 100 -> "00" <> int.to_string(n)
-    _ if n < 1000 -> "0" <> int.to_string(n)
-    _ -> int.to_string(n)
-  }
 }
 
 // ============================================================

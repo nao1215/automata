@@ -1,11 +1,11 @@
 import automata/internal/calendar
+import automata/internal/gregorian
 import automata/rrule/normalize.{type RRulePlan}
 import automata/rrule/validator
 import automata/schedule/ast.{
   type Date, type DateTime, type Weekday, Date, DateTime, Friday, Monday,
   Saturday, Sunday, Thursday, Time, Tuesday, Wednesday,
 }
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
@@ -77,19 +77,16 @@ fn base_match(plan: RRulePlan, at: DateTime) -> Bool {
 fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
   case plan.frequency {
     validator.Secondly ->
-      modulo(calendar.seconds_between(plan.anchor, at), plan.interval) == 0
+      calendar.seconds_between(plan.anchor, at) % plan.interval == 0
     validator.Minutely ->
-      modulo(calendar.seconds_between(plan.anchor, at) / 60, plan.interval) == 0
+      { calendar.seconds_between(plan.anchor, at) / 60 } % plan.interval == 0
     validator.Hourly ->
-      modulo(calendar.seconds_between(plan.anchor, at) / 3600, plan.interval)
-      == 0
-    validator.Daily -> modulo(days_between(plan.anchor, at), plan.interval) == 0
-    validator.Weekly ->
-      modulo(weeks_between(plan.anchor, at), plan.interval) == 0
-    validator.Monthly ->
-      modulo(months_between(plan.anchor, at), plan.interval) == 0
+      { calendar.seconds_between(plan.anchor, at) / 3600 } % plan.interval == 0
+    validator.Daily -> days_between(plan.anchor, at) % plan.interval == 0
+    validator.Weekly -> weeks_between(plan.anchor, at) % plan.interval == 0
+    validator.Monthly -> months_between(plan.anchor, at) % plan.interval == 0
     validator.Yearly ->
-      modulo(at.date.year - plan.anchor.date.year, plan.interval) == 0
+      { at.date.year - plan.anchor.date.year } % plan.interval == 0
   }
 }
 
@@ -253,7 +250,7 @@ fn month_day_matches(values: Option(List(Int)), date: Date) -> Bool {
   case values {
     None -> True
     Some(items) -> {
-      let maximum = calendar.days_in_month(date.year, date.month)
+      let maximum = gregorian.days_in_month(date.year, date.month)
       list.any(items, fn(item) {
         case item > 0 {
           True -> item == date.day
@@ -356,7 +353,7 @@ fn weekday_occurrences_in_month_loop(
   day: Int,
   acc: List(Occurrence),
 ) -> List(Occurrence) {
-  let maximum = calendar.days_in_month(year, month)
+  let maximum = gregorian.days_in_month(year, month)
 
   case day > maximum {
     True -> list.reverse(acc)
@@ -500,12 +497,5 @@ fn weekday_offset(day: Weekday) -> Int {
     Friday -> 4
     Saturday -> 5
     Sunday -> 6
-  }
-}
-
-fn modulo(dividend: Int, divisor: Int) -> Int {
-  case int.modulo(dividend, by: divisor) {
-    Ok(result) -> result
-    Error(_) -> 0
   }
 }

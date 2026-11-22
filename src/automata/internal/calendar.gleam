@@ -1,3 +1,4 @@
+import automata/internal/gregorian
 import automata/schedule/ast.{
   type Date, type DateTime, type Time, type Weekday, Date, DateTime, Friday,
   Monday, Saturday, Sunday, Thursday, Time, Tuesday, Wednesday,
@@ -5,7 +6,7 @@ import automata/schedule/ast.{
 import gleam/int
 import gleam/order.{type Order, Eq, Gt, Lt}
 
-pub fn compare(left: DateTime, right: DateTime) -> Order {
+fn compare(left: DateTime, right: DateTime) -> Order {
   case left.date.year < right.date.year {
     True -> Lt
     False ->
@@ -95,10 +96,10 @@ pub fn is_valid_date(date: Date) -> Bool {
   date.month >= 1
   && date.month <= 12
   && date.day >= 1
-  && date.day <= days_in_month(date.year, date.month)
+  && date.day <= gregorian.days_in_month(date.year, date.month)
 }
 
-pub fn is_valid_time(time: Time) -> Bool {
+fn is_valid_time(time: Time) -> Bool {
   time.hour >= 0
   && time.hour <= 23
   && time.minute >= 0
@@ -109,36 +110,6 @@ pub fn is_valid_time(time: Time) -> Bool {
 
 pub fn is_valid_datetime(datetime: DateTime) -> Bool {
   is_valid_date(datetime.date) && is_valid_time(datetime.time)
-}
-
-pub fn days_in_month(year: Int, month: Int) -> Int {
-  case month {
-    1 -> 31
-    2 ->
-      case is_leap_year(year) {
-        True -> 29
-        False -> 28
-      }
-    3 -> 31
-    4 -> 30
-    5 -> 31
-    6 -> 30
-    7 -> 31
-    8 -> 31
-    9 -> 30
-    10 -> 31
-    11 -> 30
-    12 -> 31
-    _ -> 0
-  }
-}
-
-pub fn is_leap_year(year: Int) -> Bool {
-  let by_4 = modulo(year, 4)
-  let by_100 = modulo(year, 100)
-  let by_400 = modulo(year, 400)
-
-  by_400 == 0 || { by_4 == 0 && by_100 != 0 }
 }
 
 pub fn weekday(datetime: DateTime) -> Weekday {
@@ -175,7 +146,7 @@ pub fn days_since_epoch(date: Date) -> Int {
   days_before_year + days_before_month(date.year, date.month) + date.day
 }
 
-pub fn datetime_to_seconds(datetime: DateTime) -> Int {
+fn datetime_to_seconds(datetime: DateTime) -> Int {
   days_since_epoch(datetime.date)
   * 86_400
   + datetime.time.hour
@@ -201,7 +172,7 @@ fn days_before_month_loop(year: Int, target: Int, month: Int, acc: Int) -> Int {
         year,
         target,
         month + 1,
-        acc + days_in_month(year, month),
+        acc + gregorian.days_in_month(year, month),
       )
   }
 }
@@ -254,14 +225,14 @@ pub fn add_days(datetime: DateTime, days: Int) -> DateTime {
   }
 }
 
-pub fn add_months(datetime: DateTime, months: Int) -> DateTime {
+fn add_months(datetime: DateTime, months: Int) -> DateTime {
   case months == 0 {
     True -> datetime
     False -> {
       let total = { datetime.date.year * 12 + datetime.date.month - 1 } + months
       let year = quotient(total, 12)
       let month = modulo(total, 12) + 1
-      let max_day = days_in_month(year, month)
+      let max_day = gregorian.days_in_month(year, month)
       let day = case datetime.date.day > max_day {
         True -> max_day
         False -> datetime.date.day
@@ -272,21 +243,8 @@ pub fn add_months(datetime: DateTime, months: Int) -> DateTime {
   }
 }
 
-pub fn start_of_day(datetime: DateTime) -> DateTime {
+fn start_of_day(datetime: DateTime) -> DateTime {
   DateTime(date: datetime.date, time: Time(hour: 0, minute: 0, second: 0))
-}
-
-pub fn at_time(
-  datetime: DateTime,
-  hour: Int,
-  minute: Int,
-  second: Int,
-) -> DateTime {
-  DateTime(date: datetime.date, time: Time(hour:, minute:, second:))
-}
-
-pub fn at_date(datetime: DateTime, date: Date) -> DateTime {
-  DateTime(date:, time: datetime.time)
 }
 
 pub fn next_day(datetime: DateTime) -> DateTime {
@@ -297,13 +255,6 @@ pub fn next_month(datetime: DateTime) -> DateTime {
   DateTime(
     date: add_months(start_of_day(datetime), 1).date,
     time: Time(hour: 0, minute: 0, second: 0),
-  )
-}
-
-pub fn next_year(datetime: DateTime) -> DateTime {
-  add_months(
-    DateTime(date: datetime.date, time: Time(hour: 0, minute: 0, second: 0)),
-    12,
   )
 }
 
@@ -325,57 +276,9 @@ pub fn ceil_to_next_minute(datetime: DateTime) -> DateTime {
   }
 }
 
-pub fn set_minute(datetime: DateTime, minute: Int) -> DateTime {
-  DateTime(
-    date: datetime.date,
-    time: Time(
-      hour: datetime.time.hour,
-      minute: minute,
-      second: datetime.time.second,
-    ),
-  )
-}
-
-pub fn set_hour(datetime: DateTime, hour: Int) -> DateTime {
-  DateTime(
-    date: datetime.date,
-    time: Time(
-      hour: hour,
-      minute: datetime.time.minute,
-      second: datetime.time.second,
-    ),
-  )
-}
-
 pub fn set_day(datetime: DateTime, day: Int) -> DateTime {
   DateTime(
     date: Date(year: datetime.date.year, month: datetime.date.month, day: day),
-    time: datetime.time,
-  )
-}
-
-pub fn set_month(datetime: DateTime, month: Int) -> DateTime {
-  let max_day = days_in_month(datetime.date.year, month)
-  let day = case datetime.date.day > max_day {
-    True -> max_day
-    False -> datetime.date.day
-  }
-
-  DateTime(
-    date: Date(year: datetime.date.year, month:, day: day),
-    time: datetime.time,
-  )
-}
-
-pub fn set_year(datetime: DateTime, year: Int) -> DateTime {
-  let max_day = days_in_month(year, datetime.date.month)
-  let day = case datetime.date.day > max_day {
-    True -> max_day
-    False -> datetime.date.day
-  }
-
-  DateTime(
-    date: Date(year:, month: datetime.date.month, day: day),
     time: datetime.time,
   )
 }
@@ -471,7 +374,7 @@ fn subtract_one_minute(datetime: DateTime) -> DateTime {
 }
 
 fn add_one_day(datetime: DateTime) -> DateTime {
-  let max_day = days_in_month(datetime.date.year, datetime.date.month)
+  let max_day = gregorian.days_in_month(datetime.date.year, datetime.date.month)
 
   case datetime.date.day < max_day {
     True ->
@@ -522,7 +425,7 @@ fn subtract_one_day(datetime: DateTime) -> DateTime {
             date: Date(
               year: datetime.date.year,
               month: previous_month,
-              day: days_in_month(datetime.date.year, previous_month),
+              day: gregorian.days_in_month(datetime.date.year, previous_month),
             ),
             time: datetime.time,
           )
@@ -532,7 +435,7 @@ fn subtract_one_day(datetime: DateTime) -> DateTime {
             date: Date(
               year: datetime.date.year - 1,
               month: 12,
-              day: days_in_month(datetime.date.year - 1, 12),
+              day: gregorian.days_in_month(datetime.date.year - 1, 12),
             ),
             time: datetime.time,
           )

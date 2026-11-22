@@ -1,4 +1,6 @@
 import automata/internal/calendar
+import automata/internal/digits
+import automata/internal/gregorian
 import automata/rrule/ast as rule_ast
 import automata/schedule/ast as schedule_ast
 import gleam/int
@@ -261,7 +263,7 @@ fn check_int_list(
       list.try_each(items, fn(item) {
         check_int(part, item, int.to_string(item), min, max, reject_zero)
       })
-      |> result.replace(Some(dedup_sort(items, [])))
+      |> result.replace(Some(list.unique(list.sort(items, by: int.compare))))
   }
 }
 
@@ -552,7 +554,8 @@ fn validate_ordinal_range(
             False ->
               Error(InvalidPartValue(
                 part: ByDayPart,
-                value: int.to_string(ordinal) <> weekday_to_string(day),
+                value: int.to_string(ordinal)
+                  <> schedule_ast.weekday_to_string(day),
               ))
           }
         EveryWeekday(_) -> validate_ordinal_range(rest, bound)
@@ -571,10 +574,10 @@ fn impossible_month_day(
   case by_month, by_month_day {
     Some(months), Some(days) ->
       !list.any(months, fn(month) {
-        let maximum = calendar.days_in_month(2024, month)
+        let maximum = gregorian.days_in_month(2024, month)
         list.any(days, fn(day) { day_matches_month_day(day, maximum) })
         || list.any(days, fn(day) {
-          day_matches_month_day(day, calendar.days_in_month(2025, month))
+          day_matches_month_day(day, gregorian.days_in_month(2025, month))
         })
       })
     _, _ -> False
@@ -645,7 +648,7 @@ fn parse_int_items(
   acc: List(Int),
 ) -> Result(List(Int), ValidationError) {
   case values {
-    [] -> Ok(dedup_sort(list.reverse(acc), []))
+    [] -> Ok(list.unique(list.sort(acc, by: int.compare)))
     [value, ..rest] ->
       case int.parse(value) {
         Error(_) -> Error(InvalidNumber(part: part, value: value))
@@ -892,20 +895,9 @@ fn append_weekday_part(
 
 fn weekday_specifier_to_string(specifier: WeekdaySpecifier) -> String {
   case specifier {
-    EveryWeekday(day) -> weekday_to_string(day)
-    NthWeekday(ordinal, day) -> int.to_string(ordinal) <> weekday_to_string(day)
-  }
-}
-
-fn weekday_to_string(day: schedule_ast.Weekday) -> String {
-  case day {
-    schedule_ast.Monday -> "MO"
-    schedule_ast.Tuesday -> "TU"
-    schedule_ast.Wednesday -> "WE"
-    schedule_ast.Thursday -> "TH"
-    schedule_ast.Friday -> "FR"
-    schedule_ast.Saturday -> "SA"
-    schedule_ast.Sunday -> "SU"
+    EveryWeekday(day) -> schedule_ast.weekday_to_string(day)
+    NthWeekday(ordinal, day) ->
+      int.to_string(ordinal) <> schedule_ast.weekday_to_string(day)
   }
 }
 
@@ -929,58 +921,18 @@ fn until_to_string(until: Until) -> String {
 }
 
 fn date_to_string(date: schedule_ast.Date) -> String {
-  pad4(date.year) <> pad2(date.month) <> pad2(date.day)
+  digits.pad4(date.year) <> digits.pad2(date.month) <> digits.pad2(date.day)
 }
 
 fn datetime_to_string(datetime: schedule_ast.DateTime) -> String {
   date_to_string(datetime.date)
   <> "T"
-  <> pad2(datetime.time.hour)
-  <> pad2(datetime.time.minute)
-  <> pad2(datetime.time.second)
+  <> digits.pad2(datetime.time.hour)
+  <> digits.pad2(datetime.time.minute)
+  <> digits.pad2(datetime.time.second)
   <> "Z"
 }
 
 fn int_list_to_string(items: List(Int)) -> String {
   string.join(list.map(items, int.to_string), with: ",")
-}
-
-fn dedup_sort(values: List(Int), acc: List(Int)) -> List(Int) {
-  case list.sort(values, by: int.compare) {
-    [] -> list.reverse(acc)
-    [first, ..rest] -> dedup_sorted(rest, first, [first, ..acc])
-  }
-}
-
-fn dedup_sorted(rest: List(Int), previous: Int, acc: List(Int)) -> List(Int) {
-  case rest {
-    [] -> list.reverse(acc)
-    [value, ..tail] ->
-      case value == previous {
-        True -> dedup_sorted(tail, previous, acc)
-        False -> dedup_sorted(tail, value, [value, ..acc])
-      }
-  }
-}
-
-fn pad2(value: Int) -> String {
-  case value < 10 {
-    True -> "0" <> int.to_string(value)
-    False -> int.to_string(value)
-  }
-}
-
-fn pad4(value: Int) -> String {
-  case value < 10 {
-    True -> "000" <> int.to_string(value)
-    False ->
-      case value < 100 {
-        True -> "00" <> int.to_string(value)
-        False ->
-          case value < 1000 {
-            True -> "0" <> int.to_string(value)
-            False -> int.to_string(value)
-          }
-      }
-  }
 }

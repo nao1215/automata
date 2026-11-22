@@ -9,9 +9,8 @@
 //// [`automata/ical`](./ical.html)). Despite the `ast` suffix, these are
 //// the runtime domain types, not parser internals.
 
-import gleam/int
-import gleam/result
-import gleam/string
+import automata/internal/digits
+import automata/internal/gregorian
 
 /// Gregorian weekday names shared by cron and RRULE APIs.
 pub type Weekday {
@@ -137,7 +136,10 @@ pub fn unsafe_assume_valid(value value: DateTime) -> ValidDateTime {
 }
 
 fn is_valid_date_components(year: Int, month: Int, day: Int) -> Bool {
-  month >= 1 && month <= 12 && day >= 1 && day <= days_in_month(year, month)
+  month >= 1
+  && month <= 12
+  && day >= 1
+  && day <= gregorian.days_in_month(year, month)
 }
 
 fn is_valid_time_components(hour: Int, minute: Int, second: Int) -> Bool {
@@ -149,52 +151,18 @@ fn is_valid_time_components(hour: Int, minute: Int, second: Int) -> Bool {
   && second <= 59
 }
 
-fn days_in_month(year: Int, month: Int) -> Int {
-  case month {
-    1 -> 31
-    2 ->
-      case is_leap_year(year) {
-        True -> 29
-        False -> 28
-      }
-    3 -> 31
-    4 -> 30
-    5 -> 31
-    6 -> 30
-    7 -> 31
-    8 -> 31
-    9 -> 30
-    10 -> 31
-    11 -> 30
-    12 -> 31
-    _ -> 0
-  }
-}
-
-fn is_leap_year(year: Int) -> Bool {
-  let by_4 = modulo(year, 4)
-  let by_100 = modulo(year, 100)
-  let by_400 = modulo(year, 400)
-
-  by_400 == 0 || { by_4 == 0 && by_100 != 0 }
-}
-
-fn modulo(dividend: Int, divisor: Int) -> Int {
-  int.modulo(dividend, by: divisor) |> result.unwrap(0)
-}
-
 pub fn to_string(datetime: DateTime) -> String {
-  pad4(datetime.date.year)
+  digits.pad4(datetime.date.year)
   <> "-"
-  <> pad2(datetime.date.month)
+  <> digits.pad2(datetime.date.month)
   <> "-"
-  <> pad2(datetime.date.day)
+  <> digits.pad2(datetime.date.day)
   <> "T"
-  <> pad2(datetime.time.hour)
+  <> digits.pad2(datetime.time.hour)
   <> ":"
-  <> pad2(datetime.time.minute)
+  <> digits.pad2(datetime.time.minute)
   <> ":"
-  <> pad2(datetime.time.second)
+  <> digits.pad2(datetime.time.second)
 }
 
 pub fn weekday_to_string(weekday: Weekday) -> String {
@@ -206,21 +174,5 @@ pub fn weekday_to_string(weekday: Weekday) -> String {
     Friday -> "FR"
     Saturday -> "SA"
     Sunday -> "SU"
-  }
-}
-
-fn pad2(value: Int) -> String {
-  case value < 10 {
-    True -> "0" <> int.to_string(value)
-    False -> int.to_string(value)
-  }
-}
-
-// ISO 8601 expanded years: at least four digits, with a leading minus
-// sign before year 0.
-fn pad4(value: Int) -> String {
-  case value < 0 {
-    True -> "-" <> pad4(0 - value)
-    False -> string.pad_start(int.to_string(value), to: 4, with: "0")
   }
 }

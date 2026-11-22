@@ -4,6 +4,7 @@ import automata/rrule
 import automata/rrule/validator as rule_validator
 import automata/schedule
 import automata/schedule/ast as schedule_ast
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 
@@ -315,4 +316,50 @@ pub fn rrule_weekly_before_year_one_test() {
   let assert Ok(Some(first)) =
     rrule.next_after(spec, anchor: anchor, after: anchor)
   iso(first) |> should.equal("0000-01-07T09:00:00")
+}
+
+// --- calendar rules through the public constructors ---
+
+pub fn try_datetime_follows_gregorian_leap_years_test() {
+  [#(2000, True), #(2024, True), #(1900, False), #(2100, False), #(2025, False)]
+  |> list.each(fn(case_) {
+    let #(year, leap) = case_
+    case schedule_ast.try_datetime(year, 2, 29, 0, 0, 0) {
+      Ok(_) -> leap |> should.equal(True)
+      Error(_) -> leap |> should.equal(False)
+    }
+  })
+}
+
+pub fn try_datetime_accepts_only_the_wall_clock_range_test() {
+  [
+    #(0, 0, 0, True),
+    #(23, 59, 59, True),
+    #(24, 0, 0, False),
+    #(23, 60, 0, False),
+    #(23, 59, 60, False),
+    #(-1, 0, 0, False),
+    #(0, -1, 0, False),
+    #(0, 0, -1, False),
+  ]
+  |> list.each(fn(case_) {
+    let #(hour, minute, second, valid) = case_
+    case schedule_ast.try_datetime(2026, 1, 1, hour, minute, second) {
+      Ok(_) -> valid |> should.equal(True)
+      Error(schedule_ast.InvalidTime(..)) -> valid |> should.equal(False)
+      Error(schedule_ast.InvalidDate(..)) -> should.fail()
+    }
+  })
+}
+
+pub fn cron_month_rollover_clamps_to_month_end_test() {
+  // The monthly search moves to the first day of the next month; the
+  // 31st only exists in some months, and 29 February only in leap years.
+  let spec = parse_and_validate_cron("0 9 31 * *")
+  let assert Some(first) =
+    cron.next_after(spec, after: vdt(2026, 1, 31, 9, 0, 0))
+  iso(first) |> should.equal("2026-03-31T09:00:00")
+  let leap = parse_and_validate_cron("0 0 29 2 *")
+  let assert Some(next) = cron.next_after(leap, after: vdt(2024, 3, 1, 0, 0, 0))
+  iso(next) |> should.equal("2028-02-29T00:00:00")
 }

@@ -18,6 +18,7 @@
 import automata/cron
 import automata/cron/iterator as cron_iterator
 import automata/internal/calendar
+import automata/internal/gregorian
 import automata/schedule/ast as schedule_ast
 import gleam/int
 import gleam/option.{None, Some}
@@ -50,7 +51,7 @@ fn start_generator() -> Generator(schedule_ast.ValidDateTime) {
     generator.int(range.constant(0, 59)),
     generator.element_of([0, 0, 30, 59]),
     fn(year, month, day, hour, minute, second) {
-      let day = int.min(day, calendar.days_in_month(year, month))
+      let day = int.min(day, gregorian.days_in_month(year, month))
       let assert Ok(value) =
         schedule_ast.try_valid_datetime(
           year:,
