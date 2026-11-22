@@ -24,11 +24,14 @@ pub fn after(
   boundary boundary: Boundary,
 ) -> RRuleIterator {
   let cursor = start_cursor(plan, boundary)
-  RRuleIterator(
-    plan: plan,
-    cursor: cursor,
-    yielded: evaluator.yielded_before(plan, cursor: cursor),
-  )
+  // Only a COUNT rule needs to know how many occurrences came before
+  // the cursor; counting them for other rules would cost time linear
+  // in the distance from the anchor.
+  let yielded = case plan.end_condition {
+    validator.Count(_) -> evaluator.yielded_before(plan, cursor: cursor)
+    validator.Forever | validator.Until(_) -> 0
+  }
+  RRuleIterator(plan: plan, cursor: cursor, yielded: yielded)
 }
 
 pub fn step(iterator: RRuleIterator) -> Step {
@@ -38,7 +41,7 @@ pub fn step(iterator: RRuleIterator) -> Step {
         True -> Done
         False -> yield_next(iterator)
       }
-    _ -> yield_next(iterator)
+    validator.Forever | validator.Until(_) -> yield_next(iterator)
   }
 }
 

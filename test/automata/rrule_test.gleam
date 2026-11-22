@@ -3,6 +3,7 @@ import automata/rrule/iterator as rule_iterator
 import automata/rrule/parser as rule_parser
 import automata/rrule/validator as rule_validator
 import automata/schedule/ast as schedule_ast
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 
@@ -848,4 +849,142 @@ pub fn daily_frequency_unaffected_by_subdaily_fix_test() {
   a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
   b |> should.equal(vdt(2026, 1, 2, 0, 0, 0))
   c |> should.equal(vdt(2026, 1, 3, 0, 0, 0))
+}
+
+fn first_occurrences(
+  rule: String,
+  anchor: schedule_ast.ValidDateTime,
+  count: Int,
+) -> List(String) {
+  let spec = parse_and_validate(rule)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  take_occurrences(iterator, count, [])
+}
+
+fn take_occurrences(
+  iterator: rule_iterator.RRuleIterator,
+  count: Int,
+  acc: List(String),
+) -> List(String) {
+  case count {
+    0 -> list.reverse(acc)
+    _ ->
+      case rule_iterator.step(iterator) {
+        rule_iterator.Done -> list.reverse(acc)
+        rule_iterator.Yield(at, next) ->
+          take_occurrences(next, count - 1, [
+            schedule_ast.to_string(schedule_ast.valid_datetime_value(at)),
+            ..acc
+          ])
+      }
+  }
+}
+
+// Reference values in the tests below come from python-dateutil 4.0.0
+// (`rrulestr(rule, dtstart=anchor)`).
+
+pub fn next_after_far_past_exhausted_count_returns_none_test() {
+  // The 10 occurrences end at 2026-01-01T00:00:09. Asking a week later
+  // used to walk every second since the anchor (about 19 seconds of
+  // CPU); the count is now capped at COUNT.
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2026, 1, 1, 0, 0, 0),
+    after: vdt(2026, 1, 8, 0, 0, 0),
+  )
+  |> should.equal(Ok(None))
+}
+
+pub fn next_after_without_count_does_not_count_past_occurrences_test() {
+  let spec = parse_and_validate("FREQ=MINUTELY")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2025, 1, 1, 0, 0, 0),
+    after: vdt(2026, 1, 1, 0, 0, 0),
+  )
+  |> should.equal(Ok(Some(vdt(2026, 1, 1, 0, 1, 0))))
+}
+
+pub fn matches_far_after_exhausted_count_is_false_test() {
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  rrule.matches(
+    spec,
+    anchor: vdt(2026, 1, 1, 0, 0, 0),
+    at: vdt(2026, 1, 3, 0, 0, 0),
+  )
+  |> should.equal(Ok(False))
+}
+
+pub fn matches_last_counted_occurrence_test() {
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 1, 0, 0, 9))
+  |> should.equal(Ok(True))
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 1, 0, 0, 10))
+  |> should.equal(Ok(False))
+}
+
+pub fn iterator_after_mid_count_keeps_remaining_occurrences_test() {
+  let spec = parse_and_validate("FREQ=DAILY;COUNT=3")
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: vdt(2026, 1, 1, 0, 0, 0),
+      boundary: schedule_ast.Exclusive(vdt(2026, 1, 1, 12, 0, 0)),
+    )
+  take_occurrences(iterator, 5, [])
+  |> should.equal(["2026-01-02T00:00:00", "2026-01-03T00:00:00"])
+}
+
+pub fn minutely_large_interval_reaches_next_step_test() {
+  first_occurrences(
+    "FREQ=MINUTELY;INTERVAL=4500000",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2026-01-01T00:00:00", "2034-07-23T00:00:00", "2043-02-11T00:00:00",
+  ])
+}
+
+pub fn hourly_large_interval_reaches_next_step_test() {
+  first_occurrences("FREQ=HOURLY;INTERVAL=100000", vdt(2026, 1, 1, 0, 0, 0), 2)
+  |> should.equal(["2026-01-01T00:00:00", "2037-05-29T16:00:00"])
+}
+
+pub fn secondly_large_interval_reaches_next_step_test() {
+  first_occurrences(
+    "FREQ=SECONDLY;INTERVAL=300000000",
+    vdt(2026, 1, 1, 0, 0, 0),
+    2,
+  )
+  |> should.equal(["2026-01-01T00:00:00", "2035-07-05T05:20:00"])
+}
+
+pub fn hourly_large_interval_with_by_month_test() {
+  first_occurrences(
+    "FREQ=HOURLY;INTERVAL=5000;BYMONTH=6",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2029-06-04T00:00:00", "2033-06-01T08:00:00", "2070-06-29T00:00:00",
+  ])
+}
+
+pub fn minutely_interval_with_by_hour_test() {
+  first_occurrences(
+    "FREQ=MINUTELY;INTERVAL=7;BYHOUR=9",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2026-01-01T09:06:00", "2026-01-01T09:13:00", "2026-01-01T09:20:00",
+  ])
 }

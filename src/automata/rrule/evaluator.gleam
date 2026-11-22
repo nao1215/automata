@@ -8,7 +8,6 @@ import automata/schedule/ast.{
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order.{Eq, Gt, Lt}
 
 pub fn matches(plan plan: RRulePlan, at at: DateTime) -> Bool {
   case calendar.less_than(at, plan.anchor) {
@@ -22,8 +21,8 @@ pub fn matches(plan plan: RRulePlan, at at: DateTime) -> Bool {
             True ->
               case plan.end_condition {
                 validator.Count(limit) ->
-                  occurrence_index(plan, at, 0, plan.anchor) <= limit
-                _ -> True
+                  count_before(plan, at, plan.anchor, 0, Some(limit)) < limit
+                validator.Forever | validator.Until(_) -> True
               }
           }
       }
@@ -103,13 +102,11 @@ fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
 
 fn within_until(end_condition: validator.EndCondition, at: DateTime) -> Bool {
   case end_condition {
-    validator.Until(until) ->
-      case until {
-        validator.UntilDate(date) ->
-          calendar.less_or_equal(at, date_to_datetime(date))
-        validator.UntilDateTime(limit) -> calendar.less_or_equal(at, limit)
-      }
-    _ -> True
+    validator.Until(validator.UntilDate(date)) ->
+      calendar.less_or_equal(at, date_to_datetime(date))
+    validator.Until(validator.UntilDateTime(limit)) ->
+      calendar.less_or_equal(at, limit)
+    validator.Forever | validator.Count(_) -> True
   }
 }
 
@@ -117,35 +114,47 @@ fn date_to_datetime(date: Date) -> DateTime {
   DateTime(date:, time: Time(hour: 23, minute: 59, second: 59))
 }
 
-fn occurrence_index(
+// Counts the occurrences strictly before `target`, starting the search
+// at `search`. With `Some(limit)` the walk stops once `limit`
+// occurrences have been seen: callers only need to know whether the
+// COUNT is used up, and counting further would make every query
+// linear in the time elapsed since the anchor.
+fn count_before(
   plan: RRulePlan,
   target: DateTime,
-  count: Int,
   search: DateTime,
+  count: Int,
+  limit: Option(Int),
 ) -> Int {
-  case next_occurrence(plan, search: search, guard: 0) {
-    None -> count
-    Some(found) ->
-      case calendar.compare(found, target) {
-        Lt ->
-          occurrence_index(
-            plan,
-            target,
-            count + 1,
-            calendar.add_seconds(found, 1),
-          )
-        Eq -> count + 1
-        Gt -> count
+  case limit {
+    Some(limit) if count >= limit -> count
+    _ ->
+      case next_occurrence(plan, search: search, guard: 0) {
+        Some(found) ->
+          case calendar.less_than(found, target) {
+            True ->
+              count_before(
+                plan,
+                target,
+                calendar.add_seconds(found, 1),
+                count + 1,
+                limit,
+              )
+            False -> count
+          }
+        None -> count
       }
   }
 }
 
+/// Number of occurrences before `cursor`. For a COUNT rule the result
+/// is capped at COUNT, since later instants are never yielded.
 pub fn yielded_before(plan plan: RRulePlan, cursor cursor: DateTime) -> Int {
-  case calendar.less_than(cursor, plan.anchor) {
-    True -> 0
-    False ->
-      occurrence_index(plan, calendar.add_seconds(cursor, -1), 0, plan.anchor)
+  let limit = case plan.end_condition {
+    validator.Count(limit) -> Some(limit)
+    validator.Forever | validator.Until(_) -> None
   }
+  count_before(plan, cursor, plan.anchor, 0, limit)
 }
 
 pub fn next_occurrence(
@@ -186,14 +195,16 @@ pub fn next_occurrence(
                       // expanded BY* lists can yield candidates that match
                       // hour/minute/second but not the interval step (e.g.
                       // FREQ=MINUTELY;INTERVAL=15 should yield T00:00 then
-                      // T00:15, not T00:01). Re-check `aligned` and advance
-                      // one second on miss so the iterator skips the gap.
+                      // T00:15, not T00:01). Re-check `aligned` and jump to
+                      // the start of the next interval step on a miss, so a
+                      // large INTERVAL costs one step instead of one per
+                      // second.
                       case aligned(plan, found) {
                         True -> Some(found)
                         False ->
                           next_occurrence(
                             plan,
-                            search: calendar.add_seconds(found, 1),
+                            search: next_step_start(plan, found),
                             guard: guard + 1,
                           )
                       }
@@ -221,7 +232,27 @@ pub fn next_occurrence(
 fn is_sub_daily(frequency: validator.Frequency) -> Bool {
   case frequency {
     validator.Secondly | validator.Minutely | validator.Hourly -> True
-    _ -> False
+    validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly ->
+      False
+  }
+}
+
+// Start of the first sub-daily interval step after `at`. Only called
+// for sub-daily frequencies, where `at` is at or after the anchor.
+fn next_step_start(plan: RRulePlan, at: DateTime) -> DateTime {
+  let step = plan.interval * sub_daily_unit_seconds(plan.frequency)
+  let elapsed = calendar.seconds_between(plan.anchor, at)
+  let steps = elapsed / step + 1
+  calendar.add_seconds(plan.anchor, steps * step)
+}
+
+fn sub_daily_unit_seconds(frequency: validator.Frequency) -> Int {
+  case frequency {
+    validator.Secondly -> 1
+    validator.Minutely -> 60
+    validator.Hourly -> 3600
+    validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly ->
+      86_400
   }
 }
 
@@ -306,7 +337,14 @@ type Occurrence {
 fn nth_scope(plan: RRulePlan) -> NthScope {
   case plan.frequency, plan.by_month {
     validator.Yearly, None -> YearScope
-    _, _ -> MonthScope
+    validator.Yearly, Some(_)
+    | validator.Monthly, _
+    | validator.Weekly, _
+    | validator.Daily, _
+    | validator.Hourly, _
+    | validator.Minutely, _
+    | validator.Secondly, _
+    -> MonthScope
   }
 }
 
