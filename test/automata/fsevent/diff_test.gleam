@@ -10,6 +10,7 @@ import automata/fsevent/watch
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/order
 import gleam/set
 import gleeunit/should
 
@@ -399,4 +400,37 @@ pub fn swapped_files_emit_two_renames_test() {
   event.event_renamed_from(event: a_ev) |> should.equal(Some(p("/b")))
   ops_of(b_ev) |> should.equal([Rename])
   event.event_renamed_from(event: b_ev) |> should.equal(Some(p("/a")))
+}
+
+pub fn rename_over_existing_file_without_rename_watch_reports_create_test() {
+  // `mv /a /b` over an existing /b, watched without Rename: /b now holds
+  // another file, so a Create subscriber must see it.
+  let prev =
+    snap([
+      file("/a", 10, 1, 0o644, None, Some("inode-1")),
+      file("/b", 5, 1, 0o644, None, Some("inode-2")),
+    ])
+  let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
+  let create_and_remove =
+    watch.watch_no_ops()
+    |> watch.with_ops(ops: op.ops_from_list([Create, Remove]))
+  let events = fsevent.diff(prev: prev, curr: curr, watch: create_and_remove)
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> should.equal([Remove])
+  ops_of(b_ev) |> list.sort(op_order) |> should.equal([Create, Remove])
+}
+
+fn op_order(a: ast.Op, b: ast.Op) -> order.Order {
+  int.compare(op_rank(a), op_rank(b))
+}
+
+fn op_rank(o: ast.Op) -> Int {
+  case o {
+    Create -> 0
+    Write -> 1
+    Remove -> 2
+    Rename -> 3
+    Chmod -> 4
+  }
 }

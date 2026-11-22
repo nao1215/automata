@@ -33,7 +33,8 @@ pub fn diff(
 ) -> List(WatchEvent) {
   // A watch without Rename gets the Remove and Create pair, so a move is
   // still visible to a Create or Remove subscriber.
-  let renames = case set.contains(watch.watch_op_mask(watch), Rename) {
+  let fold_renames = set.contains(watch.watch_op_mask(watch), Rename)
+  let renames = case fold_renames {
     True -> detect_renames(prev, curr)
     False -> dict.new()
   }
@@ -45,7 +46,7 @@ pub fn diff(
     case set.contains(suppressed_old_paths, key) {
       True -> Error(Nil)
       False ->
-        build_event_for(key, prev, curr, renames)
+        build_event_for(key, prev, curr, renames, fold_renames)
         |> apply_op_mask(watch)
     }
   })
@@ -74,6 +75,13 @@ pub fn compare_entry(
         False -> op.ops_from_list([Remove, Create])
         True -> ops_for_modification(o, n)
       }
+  }
+}
+
+fn replaced(old: Entry, new: Entry) -> Bool {
+  case entry.entry_file_id(old), entry.entry_file_id(new) {
+    Some(old_id), Some(new_id) -> old_id != new_id
+    _, _ -> False
   }
 }
 
@@ -113,10 +121,21 @@ fn build_event_for(
   prev: Snapshot,
   curr: Snapshot,
   renames: Dict(String, NormalizedPath),
+  fold_renames: Bool,
 ) -> Result(WatchEvent, Nil) {
   let prev_entry = lookup_by_key(prev, key)
   let curr_entry = lookup_by_key(curr, key)
-  let base_ops = compare_entry(old: prev_entry, new: curr_entry)
+  let base_ops = case fold_renames, prev_entry, curr_entry {
+    // Without rename folding, a path whose file_id changed holds another
+    // file now (for example after `mv` over it): the old file is removed
+    // and the new one created.
+    False, Some(o), Some(n) ->
+      case replaced(o, n) {
+        True -> set.insert(ops_for_creation(n), Remove)
+        False -> compare_entry(old: prev_entry, new: curr_entry)
+      }
+    _, _, _ -> compare_entry(old: prev_entry, new: curr_entry)
+  }
   let #(final_ops, renamed_from) =
     apply_rename(key, base_ops, prev, curr_entry, renames)
   case set.size(final_ops) == 0 {
