@@ -993,3 +993,72 @@ pub fn exdate_lines_keep_their_own_forms_on_events_and_todos_test() {
     |> should.equal(dates)
   })
 }
+
+pub fn categories_distinguish_escaped_backslashes_from_escaped_commas_test() {
+  let input = wrap_event(["CATEGORIES:Path\\\\,Next,Home\\, office"])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [event] = ical.events(cal)
+  ical.event_categories(event)
+  |> should.equal(["Path\\", "Next", "Home, office"])
+  encoded_lines(input)
+  |> starting_with("CATEGORIES")
+  |> should.equal(["CATEGORIES:Path\\\\,Next,Home\\, office"])
+}
+
+pub fn scalar_property_parameters_survive_encoding_test() {
+  let props = [
+    "CREATED;X-SOURCE=one:20260101T000000Z",
+    "LAST-MODIFIED;X-SOURCE=two:20260102T000000Z",
+    "SEQUENCE;X-SOURCE=three:0",
+    "RRULE;X-SOURCE=four:FREQ=DAILY",
+  ]
+  let lines = encoded_lines(wrap_event(props))
+  props |> list.each(fn(prop) { list.contains(lines, prop) |> should.be_true })
+}
+
+pub fn extension_properties_keep_raw_values_and_last_parameters_test() {
+  let props = [
+    "X-TEXT;LANGUAGE=en:Hello\\, world\\nAgain",
+    "X-LINK;VALUE=URI:https://x/a,b;c",
+    "X-REPEATED;LANGUAGE=en:old",
+    "X-REPEATED;LANGUAGE=de:neu",
+  ]
+  ["VEVENT", "VTODO", "VJOURNAL", "VFREEBUSY"]
+  |> list.each(fn(kind) {
+    let input = wrap_component(kind, props)
+    let lines = encoded_lines(input)
+    starting_with(lines, "X-")
+    |> list.sort(string.compare)
+    |> should.equal([
+      "X-LINK;VALUE=URI:https://x/a,b;c",
+      "X-REPEATED;LANGUAGE=de:neu",
+      "X-TEXT;LANGUAGE=en:Hello\\, world\\nAgain",
+    ])
+    encoded_lines(string.join(lines, "\r\n")) |> should.equal(lines)
+  })
+}
+
+pub fn calendar_and_timezone_keep_text_escaping_and_parameters_test() {
+  let props = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Example\\, Inc//EN",
+    "X-TEXT;LANGUAGE=de:eins\\, zwei", "BEGIN:VTIMEZONE", "TZID:Example",
+    "BEGIN:STANDARD", "DTSTART:20260101T020000", "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0100", "TZNAME;LANGUAGE=de:Zeit\\, Name", "END:STANDARD",
+    "BEGIN:DAYLIGHT", "DTSTART:20260601T020000", "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0200", "TZNAME;LANGUAGE=en:Summer", "END:DAYLIGHT",
+    "END:VTIMEZONE", "END:VCALENDAR", "",
+  ]
+  let input = string.join(props, "\r\n")
+  encoded_lines(input) |> should.equal(props)
+}
+
+pub fn replacing_extension_property_clears_parameters_and_escapes_text_test() {
+  let assert Ok(cal) = ical.parse(wrap_event(["X-NAME;LANGUAGE=de:Alt"]))
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_event_x_property("X-NAME", "New, text")
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "X-NAME") |> should.equal(["X-NAME:New\\, text"])
+}

@@ -46,6 +46,7 @@ pub opaque type Calendar {
     timezones_rev: List(Timezone),
     unknown_components_rev: List(UnknownComponent),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -137,6 +138,8 @@ pub opaque type Timezone {
     standard: List(TimezoneRule),
     daylight: List(TimezoneRule),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
+    rule_forms: Dict(#(String, Int), Dict(String, List(PropertyForm))),
   )
 }
 
@@ -169,15 +172,21 @@ pub opaque type Alarm {
 /// and whether it had no time part. The emitter uses it to write the
 /// property back in the same form. A component keeps one form for a
 /// single-valued property and one per value, in order, for repeated
-/// properties. Only parsed properties that carry parameters, and date
-/// properties written without `Z`, have forms; built values are
-/// written as UTC DATE-TIME without parameters.
+/// properties. Forms also mark wire-format text that must not be escaped
+/// again. Uninformative forms are omitted; built values have no parameters
+/// and dates default to UTC DATE-TIME.
 @internal
 pub type PropertyForm {
-  PropertyForm(parameters: List(Parameter), utc: Bool, date_only: Bool)
+  PropertyForm(
+    parameters: List(Parameter),
+    utc: Bool,
+    date_only: Bool,
+    raw_text: Bool,
+  )
 }
 
-const utc_form = PropertyForm(parameters: [], utc: True, date_only: False)
+const utc_form =
+  PropertyForm(parameters: [], utc: True, date_only: False, raw_text: False)
 
 pub type UnknownComponent {
   UnknownComponent(
@@ -225,6 +234,7 @@ pub fn validate(raw: RawCalendar) -> Result(Calendar, ValidationError) {
                 timezones_rev: timezones,
                 unknown_components_rev: unknowns,
                 x_properties: x_props,
+                forms: forms_of(properties),
               ))
             }
           }
@@ -894,6 +904,8 @@ fn validate_timezone(comp: RawComponent) -> Result(Timezone, ValidationError) {
                 standard: standard,
                 daylight: daylight,
                 x_properties: x_props,
+                forms: forms_of(props),
+                rule_forms: timezone_children_forms(children),
               ))
             }
           }
@@ -1061,7 +1073,17 @@ fn build_alarm_body(
 // Property helpers
 // ============================================================
 
-const date_properties = ["DTSTART", "DTEND", "DUE", "RDATE", "EXDATE"]
+const date_properties = [
+  "DTSTART",
+  "DTEND",
+  "DUE",
+  "RDATE",
+  "EXDATE",
+  "DTSTAMP",
+  "CREATED",
+  "LAST-MODIFIED",
+  "COMPLETED",
+]
 
 const repeated_properties = [
   "RDATE",
@@ -1089,16 +1111,16 @@ fn forms_of(props: List(RawProperty)) -> Dict(String, List(PropertyForm)) {
             }
           _ -> [raw]
         }
-        let line = list.map(values, value_form(params, _))
+        let line = list.map(values, value_form(name, params, _))
         case dict.get(acc, name) {
           Ok(previous) -> dict.insert(acc, name, prepend_all(line, previous))
           Error(_) -> dict.insert(acc, name, list.reverse(line))
         }
       }
       False ->
-        case dict.has_key(acc, name) {
+        case dict.has_key(acc, name) && !string.starts_with(name, "X-") {
           True -> acc
-          False -> dict.insert(acc, name, [value_form(params, raw)])
+          False -> dict.insert(acc, name, [value_form(name, params, raw)])
         }
     }
   })
@@ -1111,16 +1133,29 @@ fn forms_of(props: List(RawProperty)) -> Dict(String, List(PropertyForm)) {
   |> dict.filter(fn(name, forms) {
     list.any(forms, fn(form) {
       form.parameters != []
+      || form.raw_text
       || { !form.utc && list.contains(date_properties, name) }
     })
   })
 }
 
-fn value_form(params: List(Parameter), raw: String) -> PropertyForm {
+fn value_form(
+  name: String,
+  params: List(Parameter),
+  raw: String,
+) -> PropertyForm {
   PropertyForm(
     parameters: params,
     utc: string.ends_with(raw, "Z"),
     date_only: !string.contains(raw, "T"),
+    raw_text: {
+      string.starts_with(name, "X-") || name == "PRODID" || name == "TZNAME"
+    }
+      && {
+      string.contains(raw, "\\")
+      || string.contains(raw, ",")
+      || string.contains(raw, ";")
+    },
   )
 }
 
@@ -1268,27 +1303,25 @@ fn prepend_all(items: List(a), acc: List(a)) -> List(a) {
 // Text escape / list splitting
 // ============================================================
 
-const sentinel = "\u{0001}"
-
+// Split only unescaped commas; an escaped backslash before a comma
+// leaves that comma as a separator. Preserve escape pairs for unescape_text.
 fn split_text_list(raw: String) -> Result(List(String), ValidationError) {
-  let masked = string.replace(raw, "\\,", sentinel)
-  let chunks = string.split(masked, ",")
-  unescape_chunks(chunks, [])
+  split_text_values(string.to_graphemes(raw), [], [])
+  |> list.try_map(unescape_text)
 }
 
-fn unescape_chunks(
-  chunks: List(String),
+fn split_text_values(
+  rest: List(String),
+  current: List(String),
   acc: List(String),
-) -> Result(List(String), ValidationError) {
-  case chunks {
-    [] -> Ok(list.reverse(acc))
-    [first, ..rest] -> {
-      let restored = string.replace(first, sentinel, "\\,")
-      case unescape_text(restored) {
-        Error(err) -> Error(err)
-        Ok(s) -> unescape_chunks(rest, [s, ..acc])
-      }
-    }
+) -> List(String) {
+  case rest {
+    [] -> list.reverse([string.concat(list.reverse(current)), ..acc])
+    ["\\", escaped, ..tail] ->
+      split_text_values(tail, [escaped, "\\", ..current], acc)
+    [",", ..tail] ->
+      split_text_values(tail, [], [string.concat(list.reverse(current)), ..acc])
+    [char, ..tail] -> split_text_values(tail, [char, ..current], acc)
   }
 }
 
@@ -1454,6 +1487,43 @@ fn do_parse_datetime_list(
 // ============================================================
 // Calendar accessors
 // ============================================================
+
+@internal
+pub fn calendar_forms(cal: Calendar) -> Dict(String, List(PropertyForm)) {
+  cal.forms
+}
+
+@internal
+pub fn timezone_forms(tz: Timezone) -> Dict(String, List(PropertyForm)) {
+  tz.forms
+}
+
+@internal
+pub fn timezone_rule_forms(
+  tz: Timezone,
+  kind: String,
+  index: Int,
+) -> Dict(String, List(PropertyForm)) {
+  case dict.get(tz.rule_forms, #(kind, index)) {
+    Ok(forms) -> forms
+    Error(_) -> dict.new()
+  }
+}
+
+fn timezone_children_forms(
+  children: List(RawComponent),
+) -> Dict(#(String, Int), Dict(String, List(PropertyForm))) {
+  ["STANDARD", "DAYLIGHT"]
+  |> list.flat_map(fn(kind) {
+    children
+    |> list.filter(fn(child) { child.kind == kind })
+    |> list.index_map(fn(child, index) {
+      #(#(kind, index), forms_of(child.properties))
+    })
+  })
+  |> list.filter(fn(pair) { dict.size(pair.1) > 0 })
+  |> dict.from_list
+}
 
 @internal
 pub fn event_forms(event: Event) -> Dict(String, List(PropertyForm)) {
@@ -1848,15 +1918,20 @@ pub fn new_calendar(
     timezones_rev: [],
     unknown_components_rev: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_method(cal: Calendar, method: String) -> Calendar {
-  Calendar(..cal, method: Some(method))
+  Calendar(..cal, method: Some(method), forms: dict.delete(cal.forms, "METHOD"))
 }
 
 pub fn with_calscale(cal: Calendar, scale: String) -> Calendar {
-  Calendar(..cal, calscale: Some(scale))
+  Calendar(
+    ..cal,
+    calscale: Some(scale),
+    forms: dict.delete(cal.forms, "CALSCALE"),
+  )
 }
 
 pub fn add_event(cal: Calendar, event: Event) -> Calendar {
@@ -1894,7 +1969,11 @@ pub fn with_calendar_x_property(
   name: String,
   value: String,
 ) -> Calendar {
-  Calendar(..cal, x_properties: dict.insert(cal.x_properties, name, value))
+  Calendar(
+    ..cal,
+    x_properties: dict.insert(cal.x_properties, name, value),
+    forms: dict.delete(cal.forms, name),
+  )
 }
 
 // ============================================================
@@ -2075,7 +2154,11 @@ pub fn with_event_x_property(
   name: String,
   value: String,
 ) -> Event {
-  Event(..event, x_properties: dict.insert(event.x_properties, name, value))
+  Event(
+    ..event,
+    x_properties: dict.insert(event.x_properties, name, value),
+    forms: dict.delete(event.forms, name),
+  )
 }
 
 // ============================================================
@@ -2184,7 +2267,11 @@ pub fn add_todo_alarm(t: Todo, alarm: Alarm) -> Todo {
 }
 
 pub fn with_todo_x_property(t: Todo, name: String, value: String) -> Todo {
-  Todo(..t, x_properties: dict.insert(t.x_properties, name, value))
+  Todo(
+    ..t,
+    x_properties: dict.insert(t.x_properties, name, value),
+    forms: dict.delete(t.forms, name),
+  )
 }
 
 // ============================================================
@@ -2241,7 +2328,11 @@ pub fn with_journal_x_property(
   name: String,
   value: String,
 ) -> Journal {
-  Journal(..j, x_properties: dict.insert(j.x_properties, name, value))
+  Journal(
+    ..j,
+    x_properties: dict.insert(j.x_properties, name, value),
+    forms: dict.delete(j.forms, name),
+  )
 }
 
 // ============================================================
@@ -2308,7 +2399,11 @@ pub fn with_freebusy_x_property(
   name: String,
   value: String,
 ) -> FreeBusy {
-  FreeBusy(..fb, x_properties: dict.insert(fb.x_properties, name, value))
+  FreeBusy(
+    ..fb,
+    x_properties: dict.insert(fb.x_properties, name, value),
+    forms: dict.delete(fb.forms, name),
+  )
 }
 
 // ============================================================
@@ -2323,6 +2418,8 @@ pub fn new_timezone(tzid tzid: String) -> Timezone {
     standard: [],
     daylight: [],
     x_properties: dict.new(),
+    forms: dict.new(),
+    rule_forms: dict.new(),
   )
 }
 
@@ -2330,11 +2427,15 @@ pub fn with_timezone_last_modified(
   tz: Timezone,
   dt: schedule_ast.DateTime,
 ) -> Timezone {
-  Timezone(..tz, last_modified: Some(dt))
+  Timezone(
+    ..tz,
+    last_modified: Some(dt),
+    forms: dict.delete(tz.forms, "LAST-MODIFIED"),
+  )
 }
 
 pub fn with_timezone_url(tz: Timezone, value: String) -> Timezone {
-  Timezone(..tz, tzurl: Some(value))
+  Timezone(..tz, tzurl: Some(value), forms: dict.delete(tz.forms, "TZURL"))
 }
 
 pub fn add_timezone_standard(tz: Timezone, rule: TimezoneRule) -> Timezone {
@@ -2350,7 +2451,11 @@ pub fn with_timezone_x_property(
   name: String,
   value: String,
 ) -> Timezone {
-  Timezone(..tz, x_properties: dict.insert(tz.x_properties, name, value))
+  Timezone(
+    ..tz,
+    x_properties: dict.insert(tz.x_properties, name, value),
+    forms: dict.delete(tz.forms, name),
+  )
 }
 
 pub fn new_timezone_rule(
@@ -2440,5 +2545,9 @@ pub fn with_alarm_x_property(
   name: String,
   value: String,
 ) -> Alarm {
-  Alarm(..alarm, x_properties: dict.insert(alarm.x_properties, name, value))
+  Alarm(
+    ..alarm,
+    x_properties: dict.insert(alarm.x_properties, name, value),
+    forms: dict.delete(alarm.forms, name),
+  )
 }

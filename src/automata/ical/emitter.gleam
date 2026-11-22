@@ -30,20 +30,22 @@ pub fn encode(cal: ical_validator.Calendar) -> String {
 // ============================================================
 
 fn render_calendar(cal: ical_validator.Calendar) -> List(String) {
+  let forms = ical_validator.calendar_forms(cal)
   let header = [
     "BEGIN:VCALENDAR",
-    "VERSION:" <> ical_validator.version(cal),
-    "PRODID:" <> escape_text(ical_validator.product_id(cal)),
+    property(forms, "VERSION", ical_validator.version(cal)),
+    raw_text_property(forms, "PRODID", ical_validator.product_id(cal)),
   ]
   let method_lines = case ical_validator.method(cal) {
-    Some(m) -> ["METHOD:" <> escape_text(m)]
+    Some(m) -> [property(forms, "METHOD", m)]
     None -> []
   }
   let calscale_lines = case ical_validator.calscale(cal) {
-    Some(s) -> ["CALSCALE:" <> escape_text(s)]
+    Some(s) -> [property(forms, "CALSCALE", s)]
     None -> []
   }
-  let x_lines = render_x_properties(ical_validator.calendar_x_properties(cal))
+  let x_lines =
+    render_x_properties(forms, ical_validator.calendar_x_properties(cal))
   let tz_lines = list.flat_map(ical_validator.timezones(cal), render_timezone)
   let event_lines = list.flat_map(ical_validator.events(cal), render_event)
   let todo_lines = list.flat_map(ical_validator.todos(cal), render_todo)
@@ -72,12 +74,15 @@ fn render_calendar(cal: ical_validator.Calendar) -> List(String) {
   ])
 }
 
-fn render_x_properties(x_props: dict.Dict(String, String)) -> List(String) {
+fn render_x_properties(
+  forms: Forms,
+  x_props: dict.Dict(String, String),
+) -> List(String) {
   x_props
   |> dict.to_list
   |> list.map(fn(pair) {
     let #(name, value) = pair
-    name <> ":" <> escape_text(value)
+    raw_text_property(forms, name, value)
   })
 }
 
@@ -89,8 +94,13 @@ fn render_event(event: ical_validator.Event) -> List(String) {
   let forms = ical_validator.event_forms(event)
   let header = [
     "BEGIN:VEVENT",
-    "UID:" <> ical_validator.event_uid(event),
-    "DTSTAMP:" <> render_datetime_utc(ical_validator.event_dtstamp(event)),
+    property(forms, "UID", ical_validator.event_uid(event)),
+    render_dt_values(
+      form_of(forms, "DTSTAMP"),
+      "DTSTAMP",
+      [ical_validator.event_dtstamp(event)],
+      None,
+    ),
   ]
   let dtstart_lines =
     render_dt_opt(
@@ -128,21 +138,31 @@ fn render_event(event: ical_validator.Event) -> List(String) {
     render_categories(forms, ical_validator.event_categories(event))
   let url_lines = render_opt(forms, "URL", ical_validator.event_url(event))
   let created_lines = case ical_validator.event_created(event) {
-    Some(dt) -> ["CREATED:" <> render_datetime_utc(dt)]
+    Some(dt) -> [
+      render_dt_values(form_of(forms, "CREATED"), "CREATED", [dt], None),
+    ]
     None -> []
   }
   let last_mod_lines = case ical_validator.event_last_modified(event) {
-    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime_utc(dt)]
+    Some(dt) -> [
+      render_dt_values(
+        form_of(forms, "LAST-MODIFIED"),
+        "LAST-MODIFIED",
+        [dt],
+        None,
+      ),
+    ]
     None -> []
   }
-  let sequence_lines = case ical_validator.event_sequence(event) {
-    0 -> []
-    n -> ["SEQUENCE:" <> int.to_string(n)]
+  let sequence = ical_validator.event_sequence(event)
+  let sequence_lines = case sequence == 0 && !dict.has_key(forms, "SEQUENCE") {
+    True -> []
+    False -> [property(forms, "SEQUENCE", int.to_string(sequence))]
   }
   let transp_lines =
     render_opt(forms, "TRANSP", ical_validator.event_transparency(event))
   let rrule_lines = case ical_validator.event_rrule(event) {
-    Some(raw) -> ["RRULE:" <> render_raw_rrule(raw)]
+    Some(raw) -> [property(forms, "RRULE", render_raw_rrule(raw))]
     None -> []
   }
   let rdate_lines =
@@ -151,7 +171,8 @@ fn render_event(event: ical_validator.Event) -> List(String) {
     render_dt_list(forms, "EXDATE", ical_validator.event_exdates(event))
   let alarm_lines =
     list.flat_map(ical_validator.event_alarms(event), render_alarm)
-  let x_lines = render_x_properties(ical_validator.event_x_properties(event))
+  let x_lines =
+    render_x_properties(forms, ical_validator.event_x_properties(event))
 
   list.flatten([
     header,
@@ -187,14 +208,21 @@ fn render_todo(t: ical_validator.Todo) -> List(String) {
   let forms = ical_validator.todo_forms(t)
   let header = [
     "BEGIN:VTODO",
-    "UID:" <> ical_validator.todo_uid(t),
-    "DTSTAMP:" <> render_datetime_utc(ical_validator.todo_dtstamp(t)),
+    property(forms, "UID", ical_validator.todo_uid(t)),
+    render_dt_values(
+      form_of(forms, "DTSTAMP"),
+      "DTSTAMP",
+      [ical_validator.todo_dtstamp(t)],
+      None,
+    ),
   ]
   let dtstart_lines =
     render_dt_opt(forms, "DTSTART", ical_validator.todo_dtstart(t), None)
   let due_lines = render_dt_opt(forms, "DUE", ical_validator.todo_due(t), None)
   let completed_lines = case ical_validator.todo_completed(t) {
-    Some(dt) -> ["COMPLETED:" <> render_datetime_utc(dt)]
+    Some(dt) -> [
+      render_dt_values(form_of(forms, "COMPLETED"), "COMPLETED", [dt], None),
+    ]
     None -> []
   }
   let summary_lines =
@@ -203,17 +231,17 @@ fn render_todo(t: ical_validator.Todo) -> List(String) {
     render_text_opt(forms, "DESCRIPTION", ical_validator.todo_description(t))
   let status_lines = render_opt(forms, "STATUS", ical_validator.todo_status(t))
   let percent_lines = case ical_validator.todo_percent_complete(t) {
-    Some(n) -> ["PERCENT-COMPLETE:" <> int.to_string(n)]
+    Some(n) -> [property(forms, "PERCENT-COMPLETE", int.to_string(n))]
     None -> []
   }
   let priority_lines = case ical_validator.todo_priority(t) {
-    Some(n) -> ["PRIORITY:" <> int.to_string(n)]
+    Some(n) -> [property(forms, "PRIORITY", int.to_string(n))]
     None -> []
   }
   let categories_lines =
     render_categories(forms, ical_validator.todo_categories(t))
   let rrule_lines = case ical_validator.todo_rrule(t) {
-    Some(raw) -> ["RRULE:" <> render_raw_rrule(raw)]
+    Some(raw) -> [property(forms, "RRULE", render_raw_rrule(raw))]
     None -> []
   }
   let rdate_lines =
@@ -221,7 +249,7 @@ fn render_todo(t: ical_validator.Todo) -> List(String) {
   let exdate_lines =
     render_dt_list(forms, "EXDATE", ical_validator.todo_exdates(t))
   let alarm_lines = list.flat_map(ical_validator.todo_alarms(t), render_alarm)
-  let x_lines = render_x_properties(ical_validator.todo_x_properties(t))
+  let x_lines = render_x_properties(forms, ical_validator.todo_x_properties(t))
 
   list.flatten([
     header,
@@ -251,8 +279,13 @@ fn render_journal(j: ical_validator.Journal) -> List(String) {
   let forms = ical_validator.journal_forms(j)
   let header = [
     "BEGIN:VJOURNAL",
-    "UID:" <> ical_validator.journal_uid(j),
-    "DTSTAMP:" <> render_datetime_utc(ical_validator.journal_dtstamp(j)),
+    property(forms, "UID", ical_validator.journal_uid(j)),
+    render_dt_values(
+      form_of(forms, "DTSTAMP"),
+      "DTSTAMP",
+      [ical_validator.journal_dtstamp(j)],
+      None,
+    ),
   ]
   let dtstart_lines =
     render_dt_opt(forms, "DTSTART", ical_validator.journal_dtstart(j), None)
@@ -264,7 +297,8 @@ fn render_journal(j: ical_validator.Journal) -> List(String) {
     render_opt(forms, "STATUS", ical_validator.journal_status(j))
   let categories_lines =
     render_categories(forms, ical_validator.journal_categories(j))
-  let x_lines = render_x_properties(ical_validator.journal_x_properties(j))
+  let x_lines =
+    render_x_properties(forms, ical_validator.journal_x_properties(j))
 
   list.flatten([
     header,
@@ -286,8 +320,13 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
   let forms = ical_validator.freebusy_forms(fb)
   let header = [
     "BEGIN:VFREEBUSY",
-    "UID:" <> ical_validator.freebusy_uid(fb),
-    "DTSTAMP:" <> render_datetime_utc(ical_validator.freebusy_dtstamp(fb)),
+    property(forms, "UID", ical_validator.freebusy_uid(fb)),
+    render_dt_values(
+      form_of(forms, "DTSTAMP"),
+      "DTSTAMP",
+      [ical_validator.freebusy_dtstamp(fb)],
+      None,
+    ),
   ]
   let dtstart_lines =
     render_dt_opt(forms, "DTSTART", ical_validator.freebusy_dtstart(fb), None)
@@ -299,7 +338,8 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
     render_lines(forms, "ATTENDEE", ical_validator.freebusy_attendees(fb))
   let period_lines =
     render_lines(forms, "FREEBUSY", ical_validator.freebusy_periods(fb))
-  let x_lines = render_x_properties(ical_validator.freebusy_x_properties(fb))
+  let x_lines =
+    render_x_properties(forms, ical_validator.freebusy_x_properties(fb))
 
   list.flatten([
     header,
@@ -318,24 +358,48 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
 // ============================================================
 
 fn render_timezone(tz: ical_validator.Timezone) -> List(String) {
-  let header = ["BEGIN:VTIMEZONE", "TZID:" <> ical_validator.timezone_tzid(tz)]
+  let forms = ical_validator.timezone_forms(tz)
+  let header = [
+    "BEGIN:VTIMEZONE",
+    property(forms, "TZID", ical_validator.timezone_tzid(tz)),
+  ]
   let last_mod_lines = case ical_validator.timezone_last_modified(tz) {
-    Some(dt) -> ["LAST-MODIFIED:" <> render_datetime_utc(dt)]
+    Some(dt) -> [
+      render_dt_values(
+        form_of(forms, "LAST-MODIFIED"),
+        "LAST-MODIFIED",
+        [dt],
+        None,
+      ),
+    ]
     None -> []
   }
   let tzurl_lines = case ical_validator.timezone_tzurl(tz) {
-    Some(v) -> ["TZURL:" <> v]
+    Some(v) -> [property(forms, "TZURL", v)]
     None -> []
   }
   let standard_lines =
-    list.flat_map(ical_validator.timezone_standard(tz), fn(rule) {
-      render_timezone_rule("STANDARD", rule)
+    ical_validator.timezone_standard(tz)
+    |> list.index_map(fn(rule, index) {
+      render_timezone_rule(
+        "STANDARD",
+        rule,
+        ical_validator.timezone_rule_forms(tz, "STANDARD", index),
+      )
     })
+    |> list.flatten
   let daylight_lines =
-    list.flat_map(ical_validator.timezone_daylight(tz), fn(rule) {
-      render_timezone_rule("DAYLIGHT", rule)
+    ical_validator.timezone_daylight(tz)
+    |> list.index_map(fn(rule, index) {
+      render_timezone_rule(
+        "DAYLIGHT",
+        rule,
+        ical_validator.timezone_rule_forms(tz, "DAYLIGHT", index),
+      )
     })
-  let x_lines = render_x_properties(ical_validator.timezone_x_properties(tz))
+    |> list.flatten
+  let x_lines =
+    render_x_properties(forms, ical_validator.timezone_x_properties(tz))
 
   list.flatten([
     header,
@@ -351,6 +415,7 @@ fn render_timezone(tz: ical_validator.Timezone) -> List(String) {
 fn render_timezone_rule(
   kind: String,
   rule: ical_validator.TimezoneRule,
+  forms: Forms,
 ) -> List(String) {
   let ical_validator.TimezoneRule(
     dtstart: dtstart,
@@ -359,18 +424,22 @@ fn render_timezone_rule(
     rrule: rrule_opt,
     tzname: tzname_opt,
   ) = rule
+  let start_form = case forms_for(forms, "DTSTART") {
+    [form, ..] -> form
+    [] -> ical_validator.PropertyForm(..default_form(), utc: False)
+  }
   let header = [
     "BEGIN:" <> kind,
-    "DTSTART:" <> render_datetime(dtstart),
-    "TZOFFSETFROM:" <> from,
-    "TZOFFSETTO:" <> to,
+    render_dt_values(start_form, "DTSTART", [dtstart], None),
+    property(forms, "TZOFFSETFROM", from),
+    property(forms, "TZOFFSETTO", to),
   ]
   let rrule_lines = case rrule_opt {
-    Some(raw) -> ["RRULE:" <> render_raw_rrule(raw)]
+    Some(raw) -> [property(forms, "RRULE", render_raw_rrule(raw))]
     None -> []
   }
   let tzname_lines = case tzname_opt {
-    Some(name) -> ["TZNAME:" <> escape_text(name)]
+    Some(name) -> [raw_text_property(forms, "TZNAME", name)]
     None -> []
   }
   list.flatten([header, rrule_lines, tzname_lines, ["END:" <> kind]])
@@ -396,14 +465,15 @@ fn render_alarm(alarm: ical_validator.Alarm) -> List(String) {
   let summary_lines =
     render_text_opt(forms, "SUMMARY", ical_validator.alarm_summary(alarm))
   let repeat_lines = case ical_validator.alarm_repeat(alarm) {
-    Some(n) -> ["REPEAT:" <> int.to_string(n)]
+    Some(n) -> [property(forms, "REPEAT", int.to_string(n))]
     None -> []
   }
   let duration_lines =
     render_opt(forms, "DURATION", ical_validator.alarm_duration(alarm))
   let attendee_lines =
     render_lines(forms, "ATTENDEE", ical_validator.alarm_attendees(alarm))
-  let x_lines = render_x_properties(ical_validator.alarm_x_properties(alarm))
+  let x_lines =
+    render_x_properties(forms, ical_validator.alarm_x_properties(alarm))
 
   list.flatten([
     header,
@@ -496,13 +566,28 @@ fn form_of(forms: Forms, name: String) -> ical_validator.PropertyForm {
 }
 
 fn default_form() -> ical_validator.PropertyForm {
-  ical_validator.PropertyForm(parameters: [], utc: True, date_only: False)
+  ical_validator.PropertyForm(
+    parameters: [],
+    utc: True,
+    date_only: False,
+    raw_text: False,
+  )
 }
 
 /// `NAME;PARAM=...:value`, with the parameters the property was parsed
 /// with.
 fn property(forms: Forms, name: String, value: String) -> String {
   name <> render_parameters(form_of(forms, name).parameters) <> ":" <> value
+}
+
+// These accessors retain wire-format text from parsed components.
+// Builder values are plain text and require escaping once.
+fn raw_text_property(forms: Forms, name: String, value: String) -> String {
+  let encoded = case form_of(forms, name).raw_text {
+    True -> value
+    False -> escape_text(value)
+  }
+  property(forms, name, encoded)
 }
 
 fn render_parameters(params: List(Parameter)) -> String {
@@ -665,16 +750,13 @@ fn render_raw_rrule(raw: rule_ast.RawRRule) -> String {
 // DateTime rendering
 // ============================================================
 
-/// Render a `DateTime` as the RFC 5545 floating / TZID-anchored form:
-/// `YYYYMMDDTHHMMSS` (15 characters), no trailing `Z`. Use this only
-/// for properties that carry a `TZID` parameter or that are emitted
-/// inside `VTIMEZONE` (where DTSTART is local-clock by spec). All other
-/// DATE-TIME emissions should go through [`render_datetime_utc`](#render_datetime_utc).
+/// Render an all-day DATE without a time part.
 fn render_date(dt: schedule_ast.DateTime) -> String {
   let schedule_ast.Date(year: y, month: mo, day: d) = dt.date
   digits.pad4(y) <> digits.pad2(mo) <> digits.pad2(d)
 }
 
+/// Render a floating or TZID-anchored DATE-TIME, without a UTC marker.
 fn render_datetime(dt: schedule_ast.DateTime) -> String {
   let schedule_ast.DateTime(date: date, time: time) = dt
   let schedule_ast.Date(year: y, month: mo, day: d) = date
