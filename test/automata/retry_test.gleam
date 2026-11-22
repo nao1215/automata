@@ -1,4 +1,6 @@
 import automata/retry
+import gleam/int
+import gleam/list
 import gleeunit/should
 
 fn ms(milliseconds: Int) -> retry.Duration {
@@ -445,4 +447,59 @@ fn all_in_equal_jitter_range(values: List(Int), bases: List(Int)) -> Bool {
       }
     }
   }
+}
+
+fn first_delays(policy: retry.Policy, seeds: List(Int)) -> List(Int) {
+  list.map(seeds, fn(seed) {
+    let assert retry.Retry(delay: d, next: _) =
+      retry.decide(
+        ctx: retry.start(policy: policy, seed: seed),
+        failure: retry.Transient,
+      )
+    retry.duration_milliseconds(duration: d)
+  })
+}
+
+fn seeds_between(from: Int, to: Int) -> List(Int) {
+  case from > to {
+    True -> []
+    False -> [from, ..seeds_between(from + 1, to)]
+  }
+}
+
+fn max_of(values: List(Int)) -> Int {
+  list.fold(values, 0, int.max)
+}
+
+pub fn full_jitter_covers_bases_above_32_bits_test() {
+  // 10_000_000_000 ms is above 2^32 - 1; the draw used to come from a
+  // single 32-bit value and never exceeded 4_294_967_295.
+  let base = 10_000_000_000
+  let assert Ok(fixed) = retry.fixed(delay: ms(base), max_attempts: 2)
+  let policy = retry.with_jitter(policy: fixed, jitter: retry.FullJitter)
+  let delays = first_delays(policy, seeds_between(1, 200))
+
+  list.all(delays, fn(d) { d >= 0 && d <= base }) |> should.equal(True)
+  { max_of(delays) > 4_294_967_295 } |> should.equal(True)
+}
+
+pub fn full_jitter_small_seeds_spread_over_range_test() {
+  // Seeds 1 to 2000 used to give at most 536_662_045 here, an eighth of
+  // the range.
+  let base = 4_000_000_000
+  let assert Ok(fixed) = retry.fixed(delay: ms(base), max_attempts: 2)
+  let policy = retry.with_jitter(policy: fixed, jitter: retry.FullJitter)
+  let delays = first_delays(policy, seeds_between(1, 50))
+
+  { max_of(delays) > base / 2 } |> should.equal(True)
+}
+
+pub fn equal_jitter_reaches_odd_base_test() {
+  let assert Ok(fixed) = retry.fixed(delay: ms(3), max_attempts: 2)
+  let policy = retry.with_jitter(policy: fixed, jitter: retry.EqualJitter)
+
+  first_delays(policy, seeds_between(1, 200))
+  |> list.unique
+  |> list.sort(int.compare)
+  |> should.equal([1, 2, 3])
 }

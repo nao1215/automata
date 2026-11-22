@@ -33,7 +33,7 @@ fn normalize_selector(
 ) -> IntSet {
   case selector {
     validator.Any -> AnyValue(min:, max:)
-    _ ->
+    validator.Values(_) ->
       Values(validator.selector_values(
         selector,
         min,

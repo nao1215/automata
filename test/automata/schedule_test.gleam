@@ -4,6 +4,7 @@ import automata/rrule
 import automata/rrule/validator as rule_validator
 import automata/schedule
 import automata/schedule/ast as schedule_ast
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 
@@ -261,4 +262,104 @@ pub fn from_every_zero_seconds_propagates_through_compile_test() {
 
   compile(EveryS(seconds: 0, anchor: anchor))
   |> should.equal(Error(schedule.EveryIntervalMustBePositive(actual: 0)))
+}
+
+// --- years at or before 0 (proleptic Gregorian, astronomical numbering) ---
+// 0001-01-01 is a Monday and year 0 is a leap year, so 0000-01-01 is a
+// Saturday and -0001-12-31 is a Friday.
+
+fn iso(value: schedule_ast.ValidDateTime) -> String {
+  schedule_ast.to_string(schedule_ast.valid_datetime_value(value))
+}
+
+pub fn to_string_pads_negative_year_test() {
+  schedule_ast.to_string(schedule_ast.datetime(-1, 12, 31, 0, 0, 0))
+  |> should.equal("-0001-12-31T00:00:00")
+  schedule_ast.to_string(schedule_ast.datetime(-12_345, 1, 2, 3, 4, 5))
+  |> should.equal("-12345-01-02T03:04:05")
+  schedule_ast.to_string(schedule_ast.datetime(0, 1, 1, 0, 0, 0))
+  |> should.equal("0000-01-01T00:00:00")
+}
+
+pub fn cron_weekday_before_year_one_test() {
+  let saturday = parse_and_validate_cron("0 0 * * 6")
+  let assert Some(next) =
+    cron.next_after(saturday, after: vdt(-1, 12, 31, 0, 0, 0))
+  iso(next) |> should.equal("0000-01-01T00:00:00")
+  cron.matches(
+    parse_and_validate_cron("0 0 * * 5"),
+    at: vdt(-1, 12, 31, 0, 0, 0),
+  )
+  |> should.equal(True)
+}
+
+pub fn cron_month_rollover_before_year_one_test() {
+  let spec = parse_and_validate_cron("0 0 15 * *")
+  let assert Some(first) =
+    cron.next_after(spec, after: vdt(-1, 11, 20, 0, 0, 0))
+  let assert Some(second) = cron.next_after(spec, after: first)
+  iso(first) |> should.equal("-0001-12-15T00:00:00")
+  iso(second) |> should.equal("0000-01-15T00:00:00")
+}
+
+pub fn rrule_daily_interval_across_leap_year_zero_test() {
+  let spec = parse_and_validate_rrule("FREQ=DAILY;INTERVAL=2")
+  let anchor = vdt(0, 12, 30, 0, 0, 0)
+  let assert Ok(Some(first)) =
+    rrule.next_after(spec, anchor: anchor, after: anchor)
+  iso(first) |> should.equal("0001-01-01T00:00:00")
+}
+
+pub fn rrule_weekly_before_year_one_test() {
+  let spec = parse_and_validate_rrule("FREQ=WEEKLY")
+  let anchor = vdt(-1, 12, 31, 9, 0, 0)
+  let assert Ok(Some(first)) =
+    rrule.next_after(spec, anchor: anchor, after: anchor)
+  iso(first) |> should.equal("0000-01-07T09:00:00")
+}
+
+// --- calendar rules through the public constructors ---
+
+pub fn try_datetime_follows_gregorian_leap_years_test() {
+  [#(2000, True), #(2024, True), #(1900, False), #(2100, False), #(2025, False)]
+  |> list.each(fn(case_) {
+    let #(year, leap) = case_
+    case schedule_ast.try_datetime(year, 2, 29, 0, 0, 0) {
+      Ok(_) -> leap |> should.equal(True)
+      Error(_) -> leap |> should.equal(False)
+    }
+  })
+}
+
+pub fn try_datetime_accepts_only_the_wall_clock_range_test() {
+  [
+    #(0, 0, 0, True),
+    #(23, 59, 59, True),
+    #(24, 0, 0, False),
+    #(23, 60, 0, False),
+    #(23, 59, 60, False),
+    #(-1, 0, 0, False),
+    #(0, -1, 0, False),
+    #(0, 0, -1, False),
+  ]
+  |> list.each(fn(case_) {
+    let #(hour, minute, second, valid) = case_
+    case schedule_ast.try_datetime(2026, 1, 1, hour, minute, second) {
+      Ok(_) -> valid |> should.equal(True)
+      Error(schedule_ast.InvalidTime(..)) -> valid |> should.equal(False)
+      Error(schedule_ast.InvalidDate(..)) -> should.fail()
+    }
+  })
+}
+
+pub fn cron_month_rollover_clamps_to_month_end_test() {
+  // The monthly search moves to the first day of the next month; the
+  // 31st only exists in some months, and 29 February only in leap years.
+  let spec = parse_and_validate_cron("0 9 31 * *")
+  let assert Some(first) =
+    cron.next_after(spec, after: vdt(2026, 1, 31, 9, 0, 0))
+  iso(first) |> should.equal("2026-03-31T09:00:00")
+  let leap = parse_and_validate_cron("0 0 29 2 *")
+  let assert Some(next) = cron.next_after(leap, after: vdt(2024, 3, 1, 0, 0, 0))
+  iso(next) |> should.equal("2028-02-29T00:00:00")
 }

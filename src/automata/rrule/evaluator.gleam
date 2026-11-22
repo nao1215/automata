@@ -1,14 +1,13 @@
 import automata/internal/calendar
+import automata/internal/gregorian
 import automata/rrule/normalize.{type RRulePlan}
 import automata/rrule/validator
 import automata/schedule/ast.{
   type Date, type DateTime, type Weekday, Date, DateTime, Friday, Monday,
   Saturday, Sunday, Thursday, Time, Tuesday, Wednesday,
 }
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order.{Eq, Gt, Lt}
 
 pub fn matches(plan plan: RRulePlan, at at: DateTime) -> Bool {
   case calendar.less_than(at, plan.anchor) {
@@ -22,8 +21,8 @@ pub fn matches(plan plan: RRulePlan, at at: DateTime) -> Bool {
             True ->
               case plan.end_condition {
                 validator.Count(limit) ->
-                  occurrence_index(plan, at, 0, plan.anchor) <= limit
-                _ -> True
+                  count_before(plan, at, plan.anchor, 0, Some(limit)) < limit
+                validator.Forever | validator.Until(_) -> True
               }
           }
       }
@@ -78,38 +77,26 @@ fn base_match(plan: RRulePlan, at: DateTime) -> Bool {
 fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
   case plan.frequency {
     validator.Secondly ->
-      modulo(calendar.seconds_between(plan.anchor, at), plan.interval) == 0
+      calendar.seconds_between(plan.anchor, at) % plan.interval == 0
     validator.Minutely ->
-      modulo(
-        quotient(calendar.seconds_between(plan.anchor, at), 60),
-        plan.interval,
-      )
-      == 0
+      { calendar.seconds_between(plan.anchor, at) / 60 } % plan.interval == 0
     validator.Hourly ->
-      modulo(
-        quotient(calendar.seconds_between(plan.anchor, at), 3600),
-        plan.interval,
-      )
-      == 0
-    validator.Daily -> modulo(days_between(plan.anchor, at), plan.interval) == 0
-    validator.Weekly ->
-      modulo(weeks_between(plan.anchor, at), plan.interval) == 0
-    validator.Monthly ->
-      modulo(months_between(plan.anchor, at), plan.interval) == 0
+      { calendar.seconds_between(plan.anchor, at) / 3600 } % plan.interval == 0
+    validator.Daily -> days_between(plan.anchor, at) % plan.interval == 0
+    validator.Weekly -> weeks_between(plan.anchor, at) % plan.interval == 0
+    validator.Monthly -> months_between(plan.anchor, at) % plan.interval == 0
     validator.Yearly ->
-      modulo(at.date.year - plan.anchor.date.year, plan.interval) == 0
+      { at.date.year - plan.anchor.date.year } % plan.interval == 0
   }
 }
 
 fn within_until(end_condition: validator.EndCondition, at: DateTime) -> Bool {
   case end_condition {
-    validator.Until(until) ->
-      case until {
-        validator.UntilDate(date) ->
-          calendar.less_or_equal(at, date_to_datetime(date))
-        validator.UntilDateTime(limit) -> calendar.less_or_equal(at, limit)
-      }
-    _ -> True
+    validator.Until(validator.UntilDate(date)) ->
+      calendar.less_or_equal(at, date_to_datetime(date))
+    validator.Until(validator.UntilDateTime(limit)) ->
+      calendar.less_or_equal(at, limit)
+    validator.Forever | validator.Count(_) -> True
   }
 }
 
@@ -117,35 +104,47 @@ fn date_to_datetime(date: Date) -> DateTime {
   DateTime(date:, time: Time(hour: 23, minute: 59, second: 59))
 }
 
-fn occurrence_index(
+// Counts the occurrences strictly before `target`, starting the search
+// at `search`. With `Some(limit)` the walk stops once `limit`
+// occurrences have been seen: callers only need to know whether the
+// COUNT is used up, and counting further would make every query
+// linear in the time elapsed since the anchor.
+fn count_before(
   plan: RRulePlan,
   target: DateTime,
-  count: Int,
   search: DateTime,
+  count: Int,
+  limit: Option(Int),
 ) -> Int {
-  case next_occurrence(plan, search: search, guard: 0) {
-    None -> count
-    Some(found) ->
-      case calendar.compare(found, target) {
-        Lt ->
-          occurrence_index(
-            plan,
-            target,
-            count + 1,
-            calendar.add_seconds(found, 1),
-          )
-        Eq -> count + 1
-        Gt -> count
+  case limit {
+    Some(limit) if count >= limit -> count
+    _ ->
+      case next_occurrence(plan, search: search, guard: 0) {
+        Some(found) ->
+          case calendar.less_than(found, target) {
+            True ->
+              count_before(
+                plan,
+                target,
+                calendar.add_seconds(found, 1),
+                count + 1,
+                limit,
+              )
+            False -> count
+          }
+        None -> count
       }
   }
 }
 
+/// Number of occurrences before `cursor`. For a COUNT rule the result
+/// is capped at COUNT, since later instants are never yielded.
 pub fn yielded_before(plan plan: RRulePlan, cursor cursor: DateTime) -> Int {
-  case calendar.less_than(cursor, plan.anchor) {
-    True -> 0
-    False ->
-      occurrence_index(plan, calendar.add_seconds(cursor, -1), 0, plan.anchor)
+  let limit = case plan.end_condition {
+    validator.Count(limit) -> Some(limit)
+    validator.Forever | validator.Until(_) -> None
   }
+  count_before(plan, cursor, plan.anchor, 0, limit)
 }
 
 pub fn next_occurrence(
@@ -171,9 +170,10 @@ pub fn next_occurrence(
           // day, so a non-aligned `start` instant must not skip the whole day —
           // valid later same-day occurrences exist. Day-level alignment gating
           // only applies to day-or-coarser frequencies.
-          let day_alignment_ok = case is_sub_daily(plan.frequency) {
-            True -> True
-            False -> aligned(plan, start)
+          let unit = sub_daily_unit(plan.frequency)
+          let day_alignment_ok = case unit {
+            Some(_) -> True
+            None -> aligned(plan, start)
           }
           case day_matches(plan, start.date) && day_alignment_ok {
             True ->
@@ -186,16 +186,28 @@ pub fn next_occurrence(
                       // expanded BY* lists can yield candidates that match
                       // hour/minute/second but not the interval step (e.g.
                       // FREQ=MINUTELY;INTERVAL=15 should yield T00:00 then
-                      // T00:15, not T00:01). Re-check `aligned` and advance
-                      // one second on miss so the iterator skips the gap.
-                      case aligned(plan, found) {
-                        True -> Some(found)
-                        False ->
-                          next_occurrence(
-                            plan,
-                            search: calendar.add_seconds(found, 1),
-                            guard: guard + 1,
-                          )
+                      // T00:15, not T00:01). Re-check `aligned` and jump to
+                      // the start of the next interval step on a miss, so a
+                      // large INTERVAL costs one step instead of one per
+                      // second. Coarser frequencies align by date, which was
+                      // checked for `start` and holds for `found` on the
+                      // same day.
+                      case unit {
+                        None -> Some(found)
+                        Some(unit_seconds) ->
+                          case aligned(plan, found) {
+                            True -> Some(found)
+                            False ->
+                              next_occurrence(
+                                plan,
+                                search: next_step_start(
+                                  plan,
+                                  unit_seconds,
+                                  found,
+                                ),
+                                guard: guard + 1,
+                              )
+                          }
                       }
                   }
                 None ->
@@ -218,18 +230,36 @@ pub fn next_occurrence(
   }
 }
 
-fn is_sub_daily(frequency: validator.Frequency) -> Bool {
+// Seconds per FREQ unit for the sub-daily frequencies, whose interval
+// steps fall inside a day; None for DAILY and coarser.
+fn sub_daily_unit(frequency: validator.Frequency) -> Option(Int) {
   case frequency {
-    validator.Secondly | validator.Minutely | validator.Hourly -> True
-    _ -> False
+    validator.Secondly -> Some(1)
+    validator.Minutely -> Some(60)
+    validator.Hourly -> Some(3600)
+    validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly ->
+      None
   }
+}
+
+// Start of the first interval step after `at`, for a sub-daily unit of
+// `unit_seconds`. `at` is at or after the anchor.
+fn next_step_start(
+  plan: RRulePlan,
+  unit_seconds: Int,
+  at: DateTime,
+) -> DateTime {
+  let step = plan.interval * unit_seconds
+  let elapsed = calendar.seconds_between(plan.anchor, at)
+  let steps = elapsed / step + 1
+  calendar.add_seconds(plan.anchor, steps * step)
 }
 
 fn month_day_matches(values: Option(List(Int)), date: Date) -> Bool {
   case values {
     None -> True
     Some(items) -> {
-      let maximum = calendar.days_in_month(date.year, date.month)
+      let maximum = gregorian.days_in_month(date.year, date.month)
       list.any(items, fn(item) {
         case item > 0 {
           True -> item == date.day
@@ -306,7 +336,14 @@ type Occurrence {
 fn nth_scope(plan: RRulePlan) -> NthScope {
   case plan.frequency, plan.by_month {
     validator.Yearly, None -> YearScope
-    _, _ -> MonthScope
+    validator.Yearly, Some(_)
+    | validator.Monthly, _
+    | validator.Weekly, _
+    | validator.Daily, _
+    | validator.Hourly, _
+    | validator.Minutely, _
+    | validator.Secondly, _
+    -> MonthScope
   }
 }
 
@@ -325,7 +362,7 @@ fn weekday_occurrences_in_month_loop(
   day: Int,
   acc: List(Occurrence),
 ) -> List(Occurrence) {
-  let maximum = calendar.days_in_month(year, month)
+  let maximum = gregorian.days_in_month(year, month)
 
   case day > maximum {
     True -> list.reverse(acc)
@@ -441,11 +478,11 @@ fn list_first(values: List(Int)) -> Int {
 }
 
 fn days_between(from: DateTime, to: DateTime) -> Int {
-  days_since_epoch(to.date) - days_since_epoch(from.date)
+  calendar.days_since_epoch(to.date) - calendar.days_since_epoch(from.date)
 }
 
 fn weeks_between(from: DateTime, to: DateTime) -> Int {
-  quotient(days_between(start_of_week(from), start_of_week(to)), 7)
+  days_between(start_of_week(from), start_of_week(to)) / 7
 }
 
 fn months_between(from: DateTime, to: DateTime) -> Int {
@@ -469,50 +506,5 @@ fn weekday_offset(day: Weekday) -> Int {
     Friday -> 4
     Saturday -> 5
     Sunday -> 6
-  }
-}
-
-fn days_since_epoch(date: Date) -> Int {
-  days_before_year(date.year)
-  + days_before_month(date.year, date.month)
-  + date.day
-}
-
-fn days_before_year(year: Int) -> Int {
-  let previous = year - 1
-  { previous * 365 }
-  + quotient(previous, 4)
-  - quotient(previous, 100)
-  + quotient(previous, 400)
-}
-
-fn days_before_month(year: Int, month: Int) -> Int {
-  days_before_month_loop(year, month, 1, 0)
-}
-
-fn days_before_month_loop(year: Int, target: Int, month: Int, acc: Int) -> Int {
-  case month >= target {
-    True -> acc
-    False ->
-      days_before_month_loop(
-        year,
-        target,
-        month + 1,
-        acc + calendar.days_in_month(year, month),
-      )
-  }
-}
-
-fn modulo(dividend: Int, divisor: Int) -> Int {
-  case int.modulo(dividend, by: divisor) {
-    Ok(result) -> result
-    Error(_) -> 0
-  }
-}
-
-fn quotient(dividend: Int, divisor: Int) -> Int {
-  case int.divide(dividend, by: divisor) {
-    Ok(result) -> result
-    Error(_) -> 0
   }
 }

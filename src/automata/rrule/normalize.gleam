@@ -69,7 +69,9 @@ fn default_by_hour(
   case frequency {
     validator.Secondly | validator.Minutely | validator.Hourly ->
       range_inclusive(0, 23)
-    _ -> [anchor.time.hour]
+    validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly -> [
+      anchor.time.hour,
+    ]
   }
 }
 
@@ -79,7 +81,11 @@ fn default_by_minute(
 ) -> List(Int) {
   case frequency {
     validator.Secondly | validator.Minutely -> range_inclusive(0, 59)
-    _ -> [anchor.time.minute]
+    validator.Hourly
+    | validator.Daily
+    | validator.Weekly
+    | validator.Monthly
+    | validator.Yearly -> [anchor.time.minute]
   }
 }
 
@@ -89,29 +95,23 @@ fn default_seconds(
 ) -> List(Int) {
   case frequency {
     validator.Secondly -> range_inclusive(0, 59)
-    _ -> [anchor.time.second]
+    validator.Minutely
+    | validator.Hourly
+    | validator.Daily
+    | validator.Weekly
+    | validator.Monthly
+    | validator.Yearly -> [anchor.time.second]
   }
 }
 
 fn range_inclusive(from: Int, to: Int) -> List(Int) {
-  range_loop(from, to, [])
+  range_loop(to, from, [])
 }
 
-fn range_loop(current: Int, to: Int, acc: List(Int)) -> List(Int) {
-  case current > to {
-    True -> reverse_list(acc)
-    False -> range_loop(current + 1, to, [current, ..acc])
-  }
-}
-
-fn reverse_list(xs: List(a)) -> List(a) {
-  reverse_loop(xs, [])
-}
-
-fn reverse_loop(xs: List(a), acc: List(a)) -> List(a) {
-  case xs {
-    [] -> acc
-    [x, ..rest] -> reverse_loop(rest, [x, ..acc])
+fn range_loop(current: Int, from: Int, acc: List(Int)) -> List(Int) {
+  case current < from {
+    True -> acc
+    False -> range_loop(current - 1, from, [current, ..acc])
   }
 }
 
@@ -125,7 +125,12 @@ fn default_by_day(
       case validator.frequency(spec) {
         validator.Weekly ->
           Some([validator.EveryWeekday(calendar.weekday(anchor))])
-        _ -> None
+        validator.Secondly
+        | validator.Minutely
+        | validator.Hourly
+        | validator.Daily
+        | validator.Monthly
+        | validator.Yearly -> None
       }
   }
 }
@@ -143,7 +148,12 @@ fn default_by_month(
             None, None -> Some([anchor.date.month])
             _, _ -> None
           }
-        _ -> None
+        validator.Secondly
+        | validator.Minutely
+        | validator.Hourly
+        | validator.Daily
+        | validator.Weekly
+        | validator.Monthly -> None
       }
   }
 }
@@ -159,9 +169,12 @@ fn default_by_month_day(
         Some(_) -> None
         None ->
           case validator.frequency(spec) {
-            validator.Monthly -> Some([anchor.date.day])
-            validator.Yearly -> Some([anchor.date.day])
-            _ -> None
+            validator.Monthly | validator.Yearly -> Some([anchor.date.day])
+            validator.Secondly
+            | validator.Minutely
+            | validator.Hourly
+            | validator.Daily
+            | validator.Weekly -> None
           }
       }
   }

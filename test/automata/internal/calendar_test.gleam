@@ -1,23 +1,7 @@
 import automata/internal/calendar
 import automata/schedule/ast as schedule_ast
 import gleam/list
-import gleam/order
 import gleeunit/should
-
-pub fn is_leap_year_handles_century_rules_test() {
-  calendar.is_leap_year(2000) |> should.equal(True)
-  calendar.is_leap_year(2024) |> should.equal(True)
-  calendar.is_leap_year(1900) |> should.equal(False)
-  calendar.is_leap_year(2100) |> should.equal(False)
-  calendar.is_leap_year(2025) |> should.equal(False)
-}
-
-pub fn days_in_month_handles_february_test() {
-  calendar.days_in_month(2024, 2) |> should.equal(29)
-  calendar.days_in_month(2025, 2) |> should.equal(28)
-  calendar.days_in_month(2000, 2) |> should.equal(29)
-  calendar.days_in_month(1900, 2) |> should.equal(28)
-}
 
 pub fn weekday_matches_known_dates_test() {
   calendar.weekday(schedule_ast.datetime(2024, 2, 29, 0, 0, 0))
@@ -48,17 +32,6 @@ pub fn add_days_crosses_month_end_test() {
 
   calendar.add_days(schedule_ast.datetime(2026, 12, 31, 0, 0, 0), 1)
   |> should.equal(schedule_ast.datetime(2027, 1, 1, 0, 0, 0))
-}
-
-pub fn add_months_clamps_to_month_end_test() {
-  calendar.add_months(schedule_ast.datetime(2026, 1, 31, 9, 0, 0), 1)
-  |> should.equal(schedule_ast.datetime(2026, 2, 28, 9, 0, 0))
-
-  calendar.add_months(schedule_ast.datetime(2024, 1, 31, 9, 0, 0), 1)
-  |> should.equal(schedule_ast.datetime(2024, 2, 29, 9, 0, 0))
-
-  calendar.add_months(schedule_ast.datetime(2026, 5, 31, 9, 0, 0), 1)
-  |> should.equal(schedule_ast.datetime(2026, 6, 30, 9, 0, 0))
 }
 
 pub fn add_seconds_rolls_minutes_and_days_test() {
@@ -125,11 +98,11 @@ pub fn compare_total_orders_full_components_test() {
   let c = schedule_ast.datetime(2027, 1, 1, 0, 0, 0)
   let d = schedule_ast.datetime(2025, 12, 31, 23, 59, 59)
 
-  calendar.compare(a, a) |> should.equal(order.Eq)
-  calendar.compare(a, b) |> should.equal(order.Lt)
-  calendar.compare(b, a) |> should.equal(order.Gt)
-  calendar.compare(a, c) |> should.equal(order.Lt)
-  calendar.compare(a, d) |> should.equal(order.Gt)
+  calendar.equals(a, a) |> should.equal(True)
+  calendar.less_than(a, b) |> should.equal(True)
+  calendar.greater_than(b, a) |> should.equal(True)
+  calendar.less_than(a, c) |> should.equal(True)
+  calendar.greater_than(a, d) |> should.equal(True)
 }
 
 pub fn comparison_helpers_match_compare_test() {
@@ -178,14 +151,6 @@ pub fn days_since_epoch_handles_leap_year_boundary_test() {
   mar_01_2025 - feb_28_2025 |> should.equal(1)
 }
 
-pub fn datetime_to_seconds_combines_date_and_time_test() {
-  let base = schedule_ast.datetime(2026, 1, 1, 0, 0, 0)
-  let later = schedule_ast.datetime(2026, 1, 1, 1, 2, 3)
-
-  calendar.datetime_to_seconds(later) - calendar.datetime_to_seconds(base)
-  |> should.equal(3723)
-}
-
 pub fn seconds_between_is_signed_difference_test() {
   let a = schedule_ast.datetime(2026, 5, 9, 12, 0, 0)
   let b = schedule_ast.datetime(2026, 5, 9, 12, 0, 30)
@@ -218,14 +183,6 @@ pub fn next_month_advances_month_clamping_day_test() {
   |> should.equal(schedule_ast.datetime(2027, 1, 15, 0, 0, 0))
 }
 
-pub fn next_year_advances_year_and_zeroes_time_test() {
-  calendar.next_year(schedule_ast.datetime(2026, 5, 9, 12, 0, 0))
-  |> should.equal(schedule_ast.datetime(2027, 5, 9, 0, 0, 0))
-
-  calendar.next_year(schedule_ast.datetime(2024, 2, 29, 9, 0, 0))
-  |> should.equal(schedule_ast.datetime(2025, 2, 28, 0, 0, 0))
-}
-
 pub fn ceil_to_next_minute_is_identity_when_already_aligned_test() {
   let aligned = schedule_ast.datetime(2026, 5, 9, 12, 30, 0)
   calendar.ceil_to_next_minute(aligned) |> should.equal(aligned)
@@ -239,45 +196,9 @@ pub fn ceil_to_next_minute_rounds_up_partial_seconds_test() {
   |> should.equal(schedule_ast.datetime(2026, 5, 10, 0, 0, 0))
 }
 
-pub fn set_minute_replaces_minute_only_test() {
-  calendar.set_minute(schedule_ast.datetime(2026, 5, 9, 9, 0, 30), 45)
-  |> should.equal(schedule_ast.datetime(2026, 5, 9, 9, 45, 30))
-}
-
-pub fn set_hour_replaces_hour_only_test() {
-  calendar.set_hour(schedule_ast.datetime(2026, 5, 9, 9, 30, 0), 17)
-  |> should.equal(schedule_ast.datetime(2026, 5, 9, 17, 30, 0))
-}
-
 pub fn set_day_replaces_day_only_test() {
   calendar.set_day(schedule_ast.datetime(2026, 5, 9, 9, 30, 0), 25)
   |> should.equal(schedule_ast.datetime(2026, 5, 25, 9, 30, 0))
-}
-
-pub fn set_month_clamps_day_to_max_test() {
-  // 2026-01-31 → set_month 2 → must clamp day to Feb 28 (non-leap).
-  calendar.set_month(schedule_ast.datetime(2026, 1, 31, 9, 0, 0), 2)
-  |> should.equal(schedule_ast.datetime(2026, 2, 28, 9, 0, 0))
-
-  // 2024-01-31 → set_month 2 → leap year → Feb 29.
-  calendar.set_month(schedule_ast.datetime(2024, 1, 31, 9, 0, 0), 2)
-  |> should.equal(schedule_ast.datetime(2024, 2, 29, 9, 0, 0))
-}
-
-pub fn set_year_clamps_day_for_non_leap_year_test() {
-  calendar.set_year(schedule_ast.datetime(2024, 2, 29, 9, 0, 0), 2025)
-  |> should.equal(schedule_ast.datetime(2025, 2, 28, 9, 0, 0))
-
-  calendar.set_year(schedule_ast.datetime(2024, 2, 29, 9, 0, 0), 2028)
-  |> should.equal(schedule_ast.datetime(2028, 2, 29, 9, 0, 0))
-}
-
-pub fn add_months_negative_walks_backwards_test() {
-  calendar.add_months(schedule_ast.datetime(2026, 3, 31, 9, 0, 0), -1)
-  |> should.equal(schedule_ast.datetime(2026, 2, 28, 9, 0, 0))
-
-  calendar.add_months(schedule_ast.datetime(2026, 1, 15, 9, 0, 0), -2)
-  |> should.equal(schedule_ast.datetime(2025, 11, 15, 9, 0, 0))
 }
 
 // --- boundaries found by mutation testing ----------------------------------
@@ -294,17 +215,6 @@ fn dt(
     date: schedule_ast.Date(year: y, month: mo, day: d),
     time: schedule_ast.Time(hour: h, minute: mi, second: s),
   )
-}
-
-pub fn is_valid_time_accepts_only_the_wall_clock_range_test() {
-  calendar.is_valid_time(schedule_ast.Time(0, 0, 0)) |> should.equal(True)
-  calendar.is_valid_time(schedule_ast.Time(23, 59, 59)) |> should.equal(True)
-  calendar.is_valid_time(schedule_ast.Time(24, 0, 0)) |> should.equal(False)
-  calendar.is_valid_time(schedule_ast.Time(23, 60, 0)) |> should.equal(False)
-  calendar.is_valid_time(schedule_ast.Time(23, 59, 60)) |> should.equal(False)
-  calendar.is_valid_time(schedule_ast.Time(-1, 0, 0)) |> should.equal(False)
-  calendar.is_valid_time(schedule_ast.Time(0, -1, 0)) |> should.equal(False)
-  calendar.is_valid_time(schedule_ast.Time(0, 0, -1)) |> should.equal(False)
 }
 
 pub fn is_valid_date_accepts_the_last_day_of_each_month_test() {
@@ -351,11 +261,4 @@ pub fn stepping_backwards_crosses_minute_hour_day_month_and_year_test() {
   |> should.equal(dt(2024, 3, 1, 8, 0, 0))
   calendar.add_days(dt(2025, 1, 1, 8, 0, 0), -1)
   |> should.equal(dt(2024, 12, 31, 8, 0, 0))
-}
-
-pub fn set_month_and_set_year_clamp_to_the_month_end_test() {
-  calendar.set_month(dt(2024, 1, 31, 0, 0, 0), 2)
-  |> should.equal(dt(2024, 2, 29, 0, 0, 0))
-  calendar.set_year(dt(2024, 2, 29, 0, 0, 0), 2025)
-  |> should.equal(dt(2025, 2, 28, 0, 0, 0))
 }

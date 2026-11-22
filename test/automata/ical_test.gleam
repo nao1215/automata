@@ -4,6 +4,7 @@ import automata/ical/parser as ical_parser
 import automata/ical/validator as ical_validator
 import automata/rrule
 import automata/schedule/ast as schedule_ast
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -577,4 +578,522 @@ pub fn encode_preserves_z_on_created_and_last_modified_test() {
   string.contains(encoded, "CREATED:20260101T100000Z") |> should.equal(True)
   string.contains(encoded, "LAST-MODIFIED:20260105T120000Z")
   |> should.equal(True)
+}
+
+// ============================================================
+// Component order
+// ============================================================
+
+fn stamp() -> schedule_ast.DateTime {
+  schedule_ast.datetime(2026, 5, 11, 9, 0, 0)
+}
+
+pub fn add_component_keeps_insertion_order_test() {
+  let cal =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_event(ical.new_event(uid: "e1", dtstamp: stamp()))
+    |> ical.add_todo(ical.new_todo(uid: "t1", dtstamp: stamp()))
+    |> ical.add_event(ical.new_event(uid: "e2", dtstamp: stamp()))
+    |> ical.add_todo(ical.new_todo(uid: "t2", dtstamp: stamp()))
+    |> ical.add_event(ical.new_event(uid: "e3", dtstamp: stamp()))
+
+  list.map(ical.events(cal), ical.event_uid)
+  |> should.equal(["e1", "e2", "e3"])
+  list.map(ical.todos(cal), ical.todo_uid) |> should.equal(["t1", "t2"])
+
+  let assert Ok(decoded) = ical.parse(ical.encode(cal))
+  list.map(ical.events(decoded), ical.event_uid)
+  |> should.equal(["e1", "e2", "e3"])
+  decoded |> should.equal(cal)
+}
+
+pub fn add_many_events_keeps_order_test() {
+  let cal =
+    list.fold(
+      list.repeat(Nil, 3000),
+      #(ical.new_calendar(version: "2.0", prod_id: "-//x//EN"), 0),
+      fn(acc, _) {
+        let #(cal, n) = acc
+        #(
+          ical.add_event(
+            cal,
+            ical.new_event(uid: "e" <> int.to_string(n), dtstamp: stamp()),
+          ),
+          n + 1,
+        )
+      },
+    ).0
+  let uids = list.map(ical.events(cal), ical.event_uid)
+  list.length(uids) |> should.equal(3000)
+  list.first(uids) |> should.equal(Ok("e0"))
+  list.last(uids) |> should.equal(Ok("e2999"))
+}
+
+// ============================================================
+// Round trip of value forms and parameters
+// ============================================================
+
+fn wrap_event(lines: List(String)) -> String {
+  string.join(
+    list.flatten([
+      [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//x//EN", "BEGIN:VEVENT",
+        "UID:u@x", "DTSTAMP:20260101T000000Z",
+      ],
+      lines,
+      ["END:VEVENT", "END:VCALENDAR", ""],
+    ]),
+    "\r\n",
+  )
+}
+
+fn encoded_lines(input: String) -> List(String) {
+  let assert Ok(cal) = ical.parse(input)
+  string.split(ical.encode(cal), "\r\n")
+}
+
+pub fn encode_keeps_floating_datetime_test() {
+  // DTSTART without Z is floating local time; adding Z would move it
+  // to UTC.
+  let lines = encoded_lines(minimal_ics)
+  list.contains(lines, "DTSTART:20260511T130000") |> should.equal(True)
+  list.contains(lines, "DTSTART:20260511T130000Z") |> should.equal(False)
+}
+
+pub fn encode_keeps_utc_datetime_test() {
+  encoded_lines(outlook_export_ics)
+  |> list.contains("DTSTART:20260320T130000Z")
+  |> should.equal(True)
+}
+
+pub fn encode_keeps_date_value_test() {
+  let lines =
+    encoded_lines(
+      wrap_event(["DTSTART;VALUE=DATE:20260101", "DTEND;VALUE=DATE:20260102"]),
+    )
+  list.contains(lines, "DTSTART;VALUE=DATE:20260101") |> should.equal(True)
+  list.contains(lines, "DTEND;VALUE=DATE:20260102") |> should.equal(True)
+}
+
+pub fn encode_keeps_date_list_test() {
+  encoded_lines(
+    wrap_event([
+      "DTSTART;VALUE=DATE:20260101", "RDATE;VALUE=DATE:20260105,20260106",
+      "EXDATE;VALUE=DATE:20260108",
+    ]),
+  )
+  |> list.filter(fn(line) {
+    string.starts_with(line, "RDATE") || string.starts_with(line, "EXDATE")
+  })
+  |> should.equal([
+    "RDATE;VALUE=DATE:20260105,20260106", "EXDATE;VALUE=DATE:20260108",
+  ])
+}
+
+pub fn encode_keeps_property_parameters_test() {
+  let lines =
+    encoded_lines(
+      wrap_event([
+        "DTSTART:20260511T130000Z", "ORGANIZER;CN=\"Doe, John: Jr\":mailto:j@x",
+        "SUMMARY;LANGUAGE=de:Kaffee",
+      ]),
+    )
+  list.contains(lines, "ORGANIZER;CN=\"Doe, John: Jr\":mailto:j@x")
+  |> should.equal(True)
+  list.contains(lines, "SUMMARY;LANGUAGE=de:Kaffee") |> should.equal(True)
+}
+
+pub fn encode_keeps_todo_tzid_test() {
+  let input =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VTODO\r\nUID:t@x\r\nDTSTAMP:20260101T000000Z\r\nDUE;TZID=Asia/Tokyo:20260415T170000\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+  encoded_lines(input)
+  |> list.contains("DUE;TZID=Asia/Tokyo:20260415T170000")
+  |> should.equal(True)
+}
+
+pub fn encode_keeps_alarm_trigger_parameters_test() {
+  encoded_lines(
+    wrap_event([
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;RELATED=END:-PT5M",
+      "DESCRIPTION:Soon", "END:VALARM",
+    ]),
+  )
+  |> list.contains("TRIGGER;RELATED=END:-PT5M")
+  |> should.equal(True)
+}
+
+pub fn setter_replaces_parsed_value_form_test() {
+  // A new value from a setter has no form of its own, so it is written
+  // as UTC like any built value.
+  let assert Ok(cal) = ical.parse(wrap_event(["DTSTART;VALUE=DATE:20260101"]))
+  let assert [event] = ical.events(cal)
+  let moved =
+    ical.with_dtstart(event, schedule_ast.datetime(2026, 1, 2, 9, 0, 0))
+  let out =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_event(moved)
+    |> ical.encode
+  string.contains(out, "DTSTART:20260102T090000Z\r\n") |> should.equal(True)
+}
+
+pub fn duplicate_single_valued_property_keeps_first_test() {
+  // RFC 5545 allows DTSTART once; a second one is ignored, both in the
+  // model and in the encoded output.
+  let input =
+    wrap_event(["DTSTART:20260511T130000", "DTSTART:20270101T000000Z"])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [event] = ical.events(cal)
+  ical.event_dtstart(event)
+  |> should.equal(Some(schedule_ast.datetime(2026, 5, 11, 13, 0, 0)))
+  encoded_lines(input)
+  |> list.filter(fn(line) { string.starts_with(line, "DTSTART") })
+  |> should.equal(["DTSTART:20260511T130000"])
+}
+
+fn encode_events(events: List(ical.Event)) -> List(String) {
+  list.fold(
+    events,
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN"),
+    ical.add_event,
+  )
+  |> ical.encode
+  |> string.split("\r\n")
+}
+
+fn starting_with(lines: List(String), prefix: String) -> List(String) {
+  list.filter(lines, string.starts_with(_, prefix))
+}
+
+pub fn added_rdate_is_written_as_utc_test() {
+  // The parsed RDATE line is a DATE; a value added later is a UTC
+  // DATE-TIME and must not take the parsed line's form.
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "DTSTART;VALUE=DATE:20260101", "RDATE;VALUE=DATE:20260105",
+        "EXDATE;TZID=Asia/Tokyo:20260108T090000",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.add_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
+    |> ical.add_exdate(schedule_ast.datetime(2026, 1, 9, 9, 0, 0))
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "RDATE")
+  |> should.equal(["RDATE;VALUE=DATE:20260105", "RDATE:20260107T090000Z"])
+  starting_with(lines, "EXDATE")
+  |> should.equal([
+    "EXDATE;TZID=Asia/Tokyo:20260108T090000", "EXDATE:20260109T090000Z",
+  ])
+}
+
+pub fn added_todo_rdate_is_written_as_utc_test() {
+  let input =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VTODO\r\nUID:t@x\r\nDTSTAMP:20260101T000000Z\r\nRDATE;VALUE=DATE:20260105\r\nEXDATE;VALUE=DATE:20260106\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+  let assert Ok(cal) = ical.parse(input)
+  let assert [t] = ical.todos(cal)
+  let updated =
+    t
+    |> ical.add_todo_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
+    |> ical.add_todo_exdate(schedule_ast.datetime(2026, 1, 8, 9, 0, 0))
+  let lines =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_todo(updated)
+    |> ical.encode
+    |> string.split("\r\n")
+  starting_with(lines, "RDATE")
+  |> should.equal(["RDATE;VALUE=DATE:20260105", "RDATE:20260107T090000Z"])
+  starting_with(lines, "EXDATE")
+  |> should.equal(["EXDATE;VALUE=DATE:20260106", "EXDATE:20260108T090000Z"])
+}
+
+pub fn date_list_lines_keep_their_own_forms_test() {
+  let lines =
+    encoded_lines(
+      wrap_event([
+        "DTSTART:20260101T090000Z", "RDATE;VALUE=DATE:20260105,20260106",
+        "RDATE;TZID=Asia/Tokyo:20260107T090000", "RDATE:20260108T090000Z",
+      ]),
+    )
+  starting_with(lines, "RDATE")
+  |> should.equal([
+    "RDATE;VALUE=DATE:20260105,20260106",
+    "RDATE;TZID=Asia/Tokyo:20260107T090000", "RDATE:20260108T090000Z",
+  ])
+}
+
+pub fn date_without_value_parameter_stays_a_date_test() {
+  // An 8-digit value is a DATE even without VALUE=DATE.
+  let lines = encoded_lines(wrap_event(["DTSTART:20250101"]))
+  starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20250101"])
+}
+
+pub fn moving_date_dtstart_also_resets_dtend_test() {
+  // DTSTART and DTEND must have the same value type, so replacing a DATE
+  // DTSTART with a DATE-TIME also writes DTEND as a DATE-TIME.
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event(["DTSTART;VALUE=DATE:20260101", "DTEND;VALUE=DATE:20260102"]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_dtstart(schedule_ast.datetime(2026, 1, 1, 9, 0, 0))
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20260101T090000Z"])
+  starting_with(lines, "DTEND") |> should.equal(["DTEND:20260102T000000Z"])
+}
+
+fn wrap_component(kind: String, lines: List(String)) -> String {
+  wrap_event(lines)
+  |> string.replace("VEVENT", kind)
+}
+
+pub fn repeated_properties_keep_parameters_per_value_test() {
+  let attendees = [
+    "ATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:a@x",
+    "ATTENDEE;CN=Bob;PARTSTAT=DECLINED:mailto:b@x",
+    "ATTENDEE:mailto:c@x",
+  ]
+  ["VEVENT", "VFREEBUSY", "VALARM"]
+  |> list.each(fn(kind) {
+    let lines = list.append(["ACTION:EMAIL", "TRIGGER:-PT5M"], attendees)
+    let input = case kind {
+      "VALARM" ->
+        wrap_event(list.append(["BEGIN:VALARM", ..lines], ["END:VALARM"]))
+      _ -> wrap_component(kind, lines)
+    }
+    encoded_lines(input)
+    |> starting_with("ATTENDEE")
+    |> should.equal(attendees)
+  })
+}
+
+pub fn freebusy_lines_keep_their_busy_types_test() {
+  let periods = [
+    "FREEBUSY;FBTYPE=FREE:20260101T090000Z/20260101T100000Z",
+    "FREEBUSY;FBTYPE=BUSY-TENTATIVE:20260102T090000Z/PT1H",
+    "FREEBUSY:20260103T090000Z/PT1H",
+  ]
+  wrap_component("VFREEBUSY", periods)
+  |> encoded_lines
+  |> starting_with("FREEBUSY")
+  |> should.equal(periods)
+}
+
+pub fn category_lines_keep_their_languages_test() {
+  let categories = [
+    "CATEGORIES;LANGUAGE=en:Work,Home\\, office",
+    "CATEGORIES;LANGUAGE=de:Arbeit",
+    "CATEGORIES:Travel",
+  ]
+  ["VEVENT", "VTODO", "VJOURNAL"]
+  |> list.each(fn(kind) {
+    wrap_component(kind, categories)
+    |> encoded_lines
+    |> starting_with("CATEGORIES")
+    |> should.equal(categories)
+  })
+}
+
+pub fn appended_properties_do_not_inherit_parsed_parameters_test() {
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "ATTENDEE;CN=Alice:mailto:a@x", "CATEGORIES;LANGUAGE=de:Arbeit",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.add_attendee("mailto:b@x")
+    |> ical.add_category("Work")
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "ATTENDEE")
+  |> should.equal(["ATTENDEE;CN=Alice:mailto:a@x", "ATTENDEE:mailto:b@x"])
+  starting_with(lines, "CATEGORIES")
+  |> should.equal(["CATEGORIES;LANGUAGE=de:Arbeit", "CATEGORIES:Work"])
+}
+
+pub fn event_setters_clear_replaced_property_parameters_test() {
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "SUMMARY;LANGUAGE=de:Alt", "DESCRIPTION;LANGUAGE=de:Alt",
+        "LOCATION;ALTREP=\"cid:old\":Alt", "URL;X-LABEL=old:https://old",
+        "DURATION;X-LABEL=old:PT1H", "STATUS;X-LABEL=old:TENTATIVE",
+        "TRANSP;X-LABEL=old:OPAQUE",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_summary("New")
+    |> ical.with_description("New")
+    |> ical.with_location("New")
+    |> ical.with_url("https://new")
+    |> ical.with_duration("PT2H")
+    |> ical.with_status("CONFIRMED")
+    |> ical.with_transparency("TRANSPARENT")
+    |> list.wrap
+    |> encode_events
+  [
+    "SUMMARY:New",
+    "DESCRIPTION:New",
+    "LOCATION:New",
+    "URL:https://new",
+    "DURATION:PT2H",
+    "STATUS:CONFIRMED",
+    "TRANSP:TRANSPARENT",
+  ]
+  |> list.each(fn(expected) { list.contains(lines, expected) |> should.be_true })
+}
+
+pub fn other_component_setters_clear_replaced_parameters_test() {
+  let input =
+    string.concat([
+      "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n",
+      "BEGIN:VTODO\r\nUID:t\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY;LANGUAGE=de:Alt\r\nEND:VTODO\r\n",
+      "BEGIN:VJOURNAL\r\nUID:j\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY;LANGUAGE=de:Alt\r\nEND:VJOURNAL\r\n",
+      "BEGIN:VEVENT\r\nUID:e\r\nDTSTAMP:20260101T000000Z\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION;LANGUAGE=de:Alt\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    ])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [task] = ical.todos(cal)
+  let assert [journal] = ical.journals(cal)
+  let assert [event] = ical.events(cal)
+  let assert [alarm] = ical.event_alarms(event)
+  let lines =
+    ical.new_calendar("2.0", "-//x//EN")
+    |> ical.add_todo(ical.with_todo_summary(task, "New"))
+    |> ical.add_journal(ical.with_journal_summary(journal, "New"))
+    |> ical.add_event(
+      ical.new_event("new", stamp())
+      |> ical.add_alarm(ical.with_alarm_description(alarm, "New")),
+    )
+    |> ical.encode
+    |> string.split("\r\n")
+  starting_with(lines, "SUMMARY")
+  |> should.equal(["SUMMARY:New", "SUMMARY:New"])
+  starting_with(lines, "DESCRIPTION") |> should.equal(["DESCRIPTION:New"])
+}
+
+pub fn exdate_lines_keep_their_own_forms_on_events_and_todos_test() {
+  let dates = [
+    "EXDATE:20260101T090000Z", "EXDATE;TZID=Asia/Tokyo:20260102T090000",
+    "EXDATE;VALUE=DATE:20260103,20260104", "EXDATE:20260105T090000",
+  ]
+  ["VEVENT", "VTODO"]
+  |> list.each(fn(kind) {
+    encoded_lines(wrap_component(kind, dates))
+    |> starting_with("EXDATE")
+    |> should.equal(dates)
+  })
+}
+
+pub fn categories_distinguish_escaped_backslashes_from_escaped_commas_test() {
+  let input = wrap_event(["CATEGORIES:Path\\\\,Next,Home\\, office"])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [event] = ical.events(cal)
+  ical.event_categories(event)
+  |> should.equal(["Path\\", "Next", "Home, office"])
+  encoded_lines(input)
+  |> starting_with("CATEGORIES")
+  |> should.equal(["CATEGORIES:Path\\\\,Next,Home\\, office"])
+}
+
+pub fn scalar_property_parameters_survive_encoding_test() {
+  let props = [
+    "CREATED;X-SOURCE=one:20260101T000000Z",
+    "LAST-MODIFIED;X-SOURCE=two:20260102T000000Z",
+    "SEQUENCE;X-SOURCE=three:0",
+    "RRULE;X-SOURCE=four:FREQ=DAILY",
+  ]
+  let lines = encoded_lines(wrap_event(props))
+  props |> list.each(fn(prop) { list.contains(lines, prop) |> should.be_true })
+}
+
+pub fn extension_properties_keep_raw_values_and_last_parameters_test() {
+  let props = [
+    "X-TEXT;LANGUAGE=en:Hello\\, world\\nAgain",
+    "X-LINK;VALUE=URI:https://x/a,b;c",
+    "X-REPEATED;LANGUAGE=en:old",
+    "X-REPEATED;LANGUAGE=de:neu",
+  ]
+  ["VEVENT", "VTODO", "VJOURNAL", "VFREEBUSY"]
+  |> list.each(fn(kind) {
+    let input = wrap_component(kind, props)
+    let lines = encoded_lines(input)
+    starting_with(lines, "X-")
+    |> list.sort(string.compare)
+    |> should.equal([
+      "X-LINK;VALUE=URI:https://x/a,b;c",
+      "X-REPEATED;LANGUAGE=de:neu",
+      "X-TEXT;LANGUAGE=en:Hello\\, world\\nAgain",
+    ])
+    encoded_lines(string.join(lines, "\r\n")) |> should.equal(lines)
+  })
+}
+
+pub fn calendar_and_timezone_keep_text_escaping_and_parameters_test() {
+  let props = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Example\\, Inc//EN",
+    "X-TEXT;LANGUAGE=de:eins\\, zwei", "BEGIN:VTIMEZONE", "TZID:Example",
+    "BEGIN:STANDARD", "DTSTART:20260101T020000", "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0100", "TZNAME;LANGUAGE=de:Zeit\\, Name", "END:STANDARD",
+    "BEGIN:DAYLIGHT", "DTSTART:20260601T020000", "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0200", "TZNAME;LANGUAGE=en:Summer", "END:DAYLIGHT",
+    "END:VTIMEZONE", "END:VCALENDAR", "",
+  ]
+  let input = string.join(props, "\r\n")
+  encoded_lines(input) |> should.equal(props)
+}
+
+pub fn replacing_extension_property_clears_parameters_and_escapes_text_test() {
+  let assert Ok(cal) = ical.parse(wrap_event(["X-NAME;LANGUAGE=de:Alt"]))
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_event_x_property("X-NAME", "New, text")
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "X-NAME") |> should.equal(["X-NAME:New\\, text"])
+}
+
+pub fn parameter_lists_keep_quoted_value_boundaries_test() {
+  // The first line has three values; the second has one comma-containing
+  // value. Quoting the entire first list would change its meaning.
+  let props = [
+    "X-LIST;X-OPTIONS=one,\"two,three\",four:value",
+    "X-SINGLE;X-OPTIONS=\"one,two\":value",
+    "ATTENDEE;MEMBER=\"mailto:a@x\",\"mailto:b@x\":mailto:c@x",
+  ]
+  ["VEVENT", "X-CUSTOM"]
+  |> list.each(fn(kind) {
+    let lines = encoded_lines(wrap_component(kind, props))
+    props
+    |> list.each(fn(prop) { list.contains(lines, prop) |> should.be_true })
+    encoded_lines(string.join(lines, "\r\n")) |> should.equal(lines)
+  })
+}
+
+pub fn parsed_timezone_rule_keeps_an_explicit_utc_marker_test() {
+  // Even when accepting a non-local DTSTART in a timezone rule, encoding
+  // must not silently reinterpret the retained value as local time.
+  let input =
+    string.join(
+      [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//x//EN", "BEGIN:VTIMEZONE",
+        "TZID:Example", "BEGIN:STANDARD", "DTSTART:20260101T020000Z",
+        "TZOFFSETFROM:+0100", "TZOFFSETTO:+0100", "END:STANDARD",
+        "END:VTIMEZONE", "END:VCALENDAR", "",
+      ],
+      "\r\n",
+    )
+  encoded_lines(input)
+  |> starting_with("DTSTART")
+  |> should.equal(["DTSTART:20260101T020000Z"])
 }

@@ -1,9 +1,10 @@
 import automata/cron/ast.{
   type Field, type RawCron, DayOfMonth, DayOfWeek, Hour, Minute, Month,
 }
-import automata/internal/calendar
+import automata/internal/gregorian
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
 
 pub type Selector {
@@ -112,6 +113,98 @@ pub fn validate(raw raw: RawCron) -> Result(ValidCron, ValidationError) {
   }
 }
 
+/// Validate selectors built from typed values, as `validate` does for
+/// parsed text. Used by the builder so that its errors are classified
+/// from the values themselves.
+@internal
+pub fn from_selectors(
+  minute minute: Selector,
+  hour hour: Selector,
+  day_of_month day_of_month: Selector,
+  month month: Selector,
+  day_of_week day_of_week: Selector,
+) -> Result(ValidCron, ValidationError) {
+  use minute <- result.try(check_selector(Minute, minute, 0, 59))
+  use hour <- result.try(check_selector(Hour, hour, 0, 23))
+  use day_of_month <- result.try(check_selector(DayOfMonth, day_of_month, 1, 31))
+  use month <- result.try(check_selector(Month, month, 1, 12))
+  use day_of_week <- result.try(check_selector(DayOfWeek, day_of_week, 0, 7))
+  let spec = ValidCron(minute:, hour:, day_of_month:, month:, day_of_week:)
+  case validate_semantics(spec) {
+    Ok(_) -> Ok(spec)
+    Error(error) -> Error(error)
+  }
+}
+
+fn check_selector(
+  field: Field,
+  selector: Selector,
+  min: Int,
+  max: Int,
+) -> Result(Selector, ValidationError) {
+  case selector {
+    Any -> Ok(Any)
+    Values([]) -> Error(InvalidList(field: field, value: ""))
+    Values(items) ->
+      list.try_each(items, check_item(field, _, min, max))
+      |> result.replace(selector)
+  }
+}
+
+fn check_item(
+  field: Field,
+  item: Item,
+  min: Int,
+  max: Int,
+) -> Result(Nil, ValidationError) {
+  case item {
+    Exact(value) -> ensure_range(field, value, min, max) |> result.replace(Nil)
+    Range(start, end) ->
+      check_bounds(field, start, end, min, max, item_to_string(item))
+    Step(base, step) ->
+      case step_in_bounds(step, min, max) {
+        False -> Error(InvalidStep(field: field, value: item_to_string(item)))
+        True ->
+          case base {
+            StepAny -> Ok(Nil)
+            StepExact(value) ->
+              ensure_range(field, value, min, max) |> result.replace(Nil)
+            StepRange(start, end) ->
+              check_bounds(
+                field,
+                start,
+                end,
+                min,
+                max,
+                step_base_to_string(base),
+              )
+          }
+      }
+  }
+}
+
+fn check_bounds(
+  field: Field,
+  start: Int,
+  end: Int,
+  min: Int,
+  max: Int,
+  text: String,
+) -> Result(Nil, ValidationError) {
+  use _ <- result.try(ensure_range(field, start, min, max))
+  use _ <- result.try(ensure_range(field, end, min, max))
+  case start <= end {
+    True -> Ok(Nil)
+    False -> Error(InvalidRange(field: field, value: text))
+  }
+}
+
+// A step can be as large as the number of values in the field; it
+// then fires once per cycle, as in croniter.
+fn step_in_bounds(step: Int, min: Int, max: Int) -> Bool {
+  step > 0 && step <= max - min + 1
+}
+
 pub fn to_string(spec: ValidCron) -> String {
   string.join(
     [
@@ -152,9 +245,9 @@ fn schedule_possible(day_of_month: Selector, month: Selector) -> Bool {
   let days = selector_values(day_of_month, 1, 31, normalize_day_of_week: False)
 
   list.any(months, fn(month) {
-    let maximum = calendar.days_in_month(2024, month)
+    let maximum = gregorian.days_in_month(2024, month)
     list.any(days, fn(day) { day <= maximum })
-    || list.any(days, fn(day) { calendar.days_in_month(2025, month) >= day })
+    || list.any(days, fn(day) { gregorian.days_in_month(2025, month) >= day })
   })
 }
 
@@ -237,7 +330,7 @@ fn parse_step(
           case int.parse(step_text) {
             Error(_) -> Error(InvalidStep(field: field, value: part))
             Ok(step) ->
-              case step > 0 && step <= max - min {
+              case step_in_bounds(step, min, max) {
                 False -> Error(InvalidStep(field: field, value: part))
                 True ->
                   case parse_step_base(field, base, min, max, aliases) {
@@ -340,7 +433,8 @@ fn parse_value(
             False ->
               case aliases {
                 NoAliases -> Error(InvalidNumber(field: field, value: value))
-                _ -> Error(InvalidAlias(field: field, value: value))
+                MonthAliases | DayAliases ->
+                  Error(InvalidAlias(field: field, value: value))
               }
           }
       }
@@ -433,8 +527,9 @@ pub fn selector_values(
           False -> value
         }
       })
-      |> dedup_sort([])
-    False -> dedup_sort(values, [])
+      |> list.sort(by: int.compare)
+      |> list.unique
+    False -> list.unique(list.sort(values, by: int.compare))
   }
 }
 
@@ -462,24 +557,6 @@ fn inclusive_range(start: Int, stop: Int) -> List(Int) {
   case start > stop {
     True -> []
     False -> [start, ..inclusive_range(start + 1, stop)]
-  }
-}
-
-fn dedup_sort(values: List(Int), acc: List(Int)) -> List(Int) {
-  case list.sort(values, by: int.compare) {
-    [] -> list.reverse(acc)
-    [first, ..rest] -> dedup_sorted(rest, first, [first, ..acc])
-  }
-}
-
-fn dedup_sorted(rest: List(Int), previous: Int, acc: List(Int)) -> List(Int) {
-  case rest {
-    [] -> list.reverse(acc)
-    [value, ..tail] ->
-      case value == previous {
-        True -> dedup_sorted(tail, previous, acc)
-        False -> dedup_sorted(tail, value, [value, ..acc])
-      }
   }
 }
 

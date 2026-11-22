@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Cron steps may be as large as the field's range, so `*/60` for minutes, `*/24` for hours, `*/31`, `*/12` and `*/8` are accepted, as in croniter. Larger steps are still rejected.
+- RRULE accepts one `WKST=MO`, the default week start, and drops it from `to_string`. Other values and repeated `WKST` parts are rejected with `UnsupportedPart("WKST")`.
+- Retry jitter covers the whole range for delays above 2^32 ms, no longer favours small values for small seeds, and `EqualJitter` can reach the base delay. The same seed gives the same delays on both targets, but they differ from earlier versions.
+- `fsevent` reports a move as a `Remove` of the old path and a `Create` of the new one when the watch does not include `Rename`, and reports a rename over an existing file, or two swapped files, as `Rename`. A changed `file_id` at a path reports `Remove` and `Create` unless folded into a `Rename`, including replacement at the destination and recreation of the source; non-empty new files also report `Write`, subject to the watch mask.
+- `ical.encode` preserves the forms and parameters of retained properties: floating date-times stay floating, dates stay dates even without `VALUE=DATE`, and each `RDATE`/`EXDATE` value retains its own form. Repeated attendees, categories and free/busy periods keep their parameters, including `PARTSTAT`, `LANGUAGE` and `FBTYPE`, and parameter lists keep their value boundaries. When a single-valued property such as `DTSTART` appears twice, the first one is used; repeated extension properties retain the last value and its parameters.
+- iCalendar setters clear the replaced property's parsed parameters, and appended values do not inherit another value's parameters. Added or replaced date-times default to UTC; an event's explicitly set `TZID` still applies, and timezone rules default to local time. Replacing a date-valued `DTSTART`, `DTEND` or VTODO `DUE` also changes its paired date property to DATE-TIME so their value types agree.
+
+### Fixed
+
+- `rrule.next_after` and `rrule.matches` no longer count every occurrence since the start when the rule has no `COUNT`, and stop counting at `COUNT`. A secondly rule a week after its start took 18 seconds.
+- Secondly, minutely and hourly rules with a large `INTERVAL` jump to the next step instead of running out of search steps and returning no occurrence. `FREQ=MINUTELY;INTERVAL=4500000` now finds 2034-07-23.
+- Weekdays and day counts are correct for years before 1, and `to_string` writes such years as `-0001`.
+- The cron and RRULE builders validate typed values directly. The cron builder reports negative values as out of range, for example `OutOfRange(Minute, 0, 59, -1)` for `cron.at(-1)`, instead of interpreting them as malformed ranges.
+- iCalendar output no longer escapes parsed `PRODID`, timezone names or extension values a second time, and retains their parameters. Category lists distinguish escaped backslashes from escaped commas, keeping the original value boundaries.
+- `ical` adds components in constant time; 20000 events took over 3 seconds on JavaScript.
+- The README example that reads an RRULE from an iCalendar event compiles, and the cron `next_after` documentation describes its search limit accurately.
+
 ## [0.12.0] - 2026-11-19
 
 ### Added

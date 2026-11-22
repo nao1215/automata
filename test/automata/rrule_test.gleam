@@ -3,6 +3,7 @@ import automata/rrule/iterator as rule_iterator
 import automata/rrule/parser as rule_parser
 import automata/rrule/validator as rule_validator
 import automata/schedule/ast as schedule_ast
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 
@@ -699,6 +700,74 @@ pub fn builder_rejects_empty_by_hour_test() {
   )
 }
 
+pub fn builder_sorts_and_dedups_lists_like_parse_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_month_day([15, -1, 15])
+  |> rrule.with_by_hour([17, 9, 9])
+  |> rrule.with_by_minute([30, 0])
+  |> rrule.build
+  |> should.equal(
+    Ok(parse_and_validate(
+      "FREQ=MONTHLY;BYMONTHDAY=-1,15;BYHOUR=9,17;BYMINUTE=0,30",
+    )),
+  )
+}
+
+pub fn builder_rejects_out_of_range_minute_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_by_minute([0, 60])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.OutOfRange(
+      part: rule_validator.ByMinutePart,
+      min: 0,
+      max: 59,
+      actual: 60,
+    )),
+  )
+}
+
+pub fn builder_rejects_zero_month_day_test() {
+  rrule.builder(rule_validator.Monthly)
+  |> rrule.with_by_month_day([0])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.InvalidPartValue(
+      part: rule_validator.ByMonthDayPart,
+      value: "0",
+    )),
+  )
+}
+
+pub fn builder_rejects_impossible_until_date_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_date(schedule_ast.Date(year: 2026, month: 2, day: 30))
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.UntilMalformedDateTime(value: "20260230")),
+  )
+}
+
+pub fn builder_rejects_until_year_beyond_four_digits_test() {
+  rrule.builder(rule_validator.Daily)
+  |> rrule.with_until_date(schedule_ast.Date(year: 12_026, month: 1, day: 1))
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.UntilMalformedDateTime(value: "120260101")),
+  )
+}
+
+pub fn builder_rejects_numeric_weekday_for_weekly_test() {
+  rrule.builder(rule_validator.Weekly)
+  |> rrule.with_by_day([rrule.nth_weekday(ordinal: 1, day: schedule_ast.Monday)])
+  |> rrule.build
+  |> should.equal(
+    Error(rule_validator.NumericWeekdayRequiresMonthlyOrYearly(
+      frequency: rule_validator.Weekly,
+    )),
+  )
+}
+
 pub fn without_end_condition_clears_count_test() {
   rrule.builder(rule_validator.Daily)
   |> rrule.with_count(5)
@@ -848,4 +917,215 @@ pub fn daily_frequency_unaffected_by_subdaily_fix_test() {
   a |> should.equal(vdt(2026, 1, 1, 0, 0, 0))
   b |> should.equal(vdt(2026, 1, 2, 0, 0, 0))
   c |> should.equal(vdt(2026, 1, 3, 0, 0, 0))
+}
+
+fn first_occurrences(
+  rule: String,
+  anchor: schedule_ast.ValidDateTime,
+  count: Int,
+) -> List(String) {
+  let spec = parse_and_validate(rule)
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: anchor,
+      boundary: schedule_ast.Inclusive(anchor),
+    )
+  take_occurrences(iterator, count, [])
+}
+
+fn take_occurrences(
+  iterator: rule_iterator.RRuleIterator,
+  count: Int,
+  acc: List(String),
+) -> List(String) {
+  case count {
+    0 -> list.reverse(acc)
+    _ ->
+      case rule_iterator.step(iterator) {
+        rule_iterator.Done -> list.reverse(acc)
+        rule_iterator.Yield(at, next) ->
+          take_occurrences(next, count - 1, [
+            schedule_ast.to_string(schedule_ast.valid_datetime_value(at)),
+            ..acc
+          ])
+      }
+  }
+}
+
+// Reference values in the tests below come from python-dateutil 4.0.0
+// (`rrulestr(rule, dtstart=anchor)`).
+
+pub fn next_after_far_past_exhausted_count_returns_none_test() {
+  // The 10 occurrences end at 2026-01-01T00:00:09. Asking a week later
+  // used to walk every second since the anchor (about 19 seconds of
+  // CPU); the count is now capped at COUNT.
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2026, 1, 1, 0, 0, 0),
+    after: vdt(2026, 1, 8, 0, 0, 0),
+  )
+  |> should.equal(Ok(None))
+}
+
+pub fn next_after_without_count_does_not_count_past_occurrences_test() {
+  let spec = parse_and_validate("FREQ=MINUTELY")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2025, 1, 1, 0, 0, 0),
+    after: vdt(2026, 1, 1, 0, 0, 0),
+  )
+  |> should.equal(Ok(Some(vdt(2026, 1, 1, 0, 1, 0))))
+}
+
+pub fn matches_far_after_exhausted_count_is_false_test() {
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  rrule.matches(
+    spec,
+    anchor: vdt(2026, 1, 1, 0, 0, 0),
+    at: vdt(2026, 1, 3, 0, 0, 0),
+  )
+  |> should.equal(Ok(False))
+}
+
+pub fn matches_last_counted_occurrence_test() {
+  let spec = parse_and_validate("FREQ=SECONDLY;COUNT=10")
+  let anchor = vdt(2026, 1, 1, 0, 0, 0)
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 1, 0, 0, 9))
+  |> should.equal(Ok(True))
+  rrule.matches(spec, anchor: anchor, at: vdt(2026, 1, 1, 0, 0, 10))
+  |> should.equal(Ok(False))
+}
+
+pub fn iterator_after_mid_count_keeps_remaining_occurrences_test() {
+  let spec = parse_and_validate("FREQ=DAILY;COUNT=3")
+  let assert Ok(iterator) =
+    rrule.iterator_after(
+      spec,
+      anchor: vdt(2026, 1, 1, 0, 0, 0),
+      boundary: schedule_ast.Exclusive(vdt(2026, 1, 1, 12, 0, 0)),
+    )
+  take_occurrences(iterator, 5, [])
+  |> should.equal(["2026-01-02T00:00:00", "2026-01-03T00:00:00"])
+}
+
+pub fn minutely_large_interval_reaches_next_step_test() {
+  first_occurrences(
+    "FREQ=MINUTELY;INTERVAL=4500000",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2026-01-01T00:00:00", "2034-07-23T00:00:00", "2043-02-11T00:00:00",
+  ])
+}
+
+pub fn hourly_large_interval_reaches_next_step_test() {
+  first_occurrences("FREQ=HOURLY;INTERVAL=100000", vdt(2026, 1, 1, 0, 0, 0), 2)
+  |> should.equal(["2026-01-01T00:00:00", "2037-05-29T16:00:00"])
+}
+
+pub fn secondly_large_interval_reaches_next_step_test() {
+  first_occurrences(
+    "FREQ=SECONDLY;INTERVAL=300000000",
+    vdt(2026, 1, 1, 0, 0, 0),
+    2,
+  )
+  |> should.equal(["2026-01-01T00:00:00", "2035-07-05T05:20:00"])
+}
+
+pub fn hourly_large_interval_with_by_month_test() {
+  first_occurrences(
+    "FREQ=HOURLY;INTERVAL=5000;BYMONTH=6",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2029-06-04T00:00:00", "2033-06-01T08:00:00", "2070-06-29T00:00:00",
+  ])
+}
+
+pub fn minutely_interval_with_by_hour_test() {
+  first_occurrences(
+    "FREQ=MINUTELY;INTERVAL=7;BYHOUR=9",
+    vdt(2026, 1, 1, 0, 0, 0),
+    3,
+  )
+  |> should.equal([
+    "2026-01-01T09:06:00", "2026-01-01T09:13:00", "2026-01-01T09:20:00",
+  ])
+}
+
+pub fn validate_accepts_default_wkst_test() {
+  let spec = parse_and_validate("FREQ=WEEKLY;WKST=MO")
+  rrule.to_string(spec) |> should.equal("FREQ=WEEKLY")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2026, 1, 5, 9, 0, 0),
+    after: vdt(2026, 1, 5, 9, 0, 0),
+  )
+  |> should.equal(Ok(Some(vdt(2026, 1, 12, 9, 0, 0))))
+}
+
+pub fn validate_rejects_non_default_wkst_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;WKST=SU")
+  rrule.validate(raw)
+  |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
+}
+
+pub fn validate_rejects_repeated_wkst_test() {
+  // Each rule part may appear once. RulePart has no WKST variant, so a
+  // second WKST is reported like an unsupported WKST value.
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;WKST=MO;WKST=MO")
+  rrule.validate(raw)
+  |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
+}
+
+pub fn daily_interval_keeps_all_times_on_aligned_dates_test() {
+  first_occurrences(
+    "FREQ=DAILY;INTERVAL=2;BYHOUR=9,17",
+    vdt(2026, 1, 1, 17, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2026-01-01T17:00:00", "2026-01-03T09:00:00", "2026-01-03T17:00:00",
+    "2026-01-05T09:00:00",
+  ])
+}
+
+pub fn weekly_interval_uses_calendar_weeks_test() {
+  first_occurrences(
+    "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE",
+    vdt(2025, 12, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2025-12-31T09:00:00", "2026-01-12T09:00:00", "2026-01-14T09:00:00",
+    "2026-01-26T09:00:00",
+  ])
+}
+
+pub fn monthly_interval_uses_calendar_months_test() {
+  first_occurrences(
+    "FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=1,31",
+    vdt(2026, 1, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2026-01-31T09:00:00", "2026-03-01T09:00:00", "2026-03-31T09:00:00",
+    "2026-05-01T09:00:00",
+  ])
+}
+
+pub fn yearly_interval_uses_calendar_years_test() {
+  first_occurrences(
+    "FREQ=YEARLY;INTERVAL=2;BYMONTH=1,12;BYMONTHDAY=31",
+    vdt(2025, 12, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2025-12-31T09:00:00", "2027-01-31T09:00:00", "2027-12-31T09:00:00",
+    "2029-01-31T09:00:00",
+  ])
 }

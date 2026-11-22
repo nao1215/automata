@@ -37,13 +37,16 @@ pub opaque type Calendar {
     product_id: String,
     method: Option(String),
     calscale: Option(String),
-    events: List(Event),
-    todos: List(Todo),
-    journals: List(Journal),
-    freebusy: List(FreeBusy),
-    timezones: List(Timezone),
-    unknown_components: List(UnknownComponent),
+    // Components are kept newest first so that `add_*` is O(1); the
+    // accessors reverse them back into document order.
+    events_rev: List(Event),
+    todos_rev: List(Todo),
+    journals_rev: List(Journal),
+    freebusy_rev: List(FreeBusy),
+    timezones_rev: List(Timezone),
+    unknown_components_rev: List(UnknownComponent),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -73,6 +76,7 @@ pub opaque type Event {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -94,6 +98,7 @@ pub opaque type Todo {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -107,6 +112,7 @@ pub opaque type Journal {
     status: Option(String),
     categories: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -120,6 +126,7 @@ pub opaque type FreeBusy {
     attendees: List(String),
     freebusy_periods: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -131,6 +138,8 @@ pub opaque type Timezone {
     standard: List(TimezoneRule),
     daylight: List(TimezoneRule),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
+    rule_forms: Dict(#(String, Int), Dict(String, List(PropertyForm))),
   )
 }
 
@@ -154,8 +163,30 @@ pub opaque type Alarm {
     duration: Option(String),
     attendees: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
+
+/// How a property was written in parsed text: its parameters (such as
+/// `VALUE=DATE`, `TZID` or `CN`), whether a date value ended in `Z`,
+/// and whether it had no time part. The emitter uses it to write the
+/// property back in the same form. A component keeps one form for a
+/// single-valued property and one per value, in order, for repeated
+/// properties. Forms also mark wire-format text that must not be escaped
+/// again. Uninformative forms are omitted; built values have no parameters
+/// and dates default to UTC DATE-TIME.
+@internal
+pub type PropertyForm {
+  PropertyForm(
+    parameters: List(Parameter),
+    utc: Bool,
+    date_only: Bool,
+    raw_text: Bool,
+  )
+}
+
+const utc_form =
+  PropertyForm(parameters: [], utc: True, date_only: False, raw_text: False)
 
 pub type UnknownComponent {
   UnknownComponent(
@@ -196,13 +227,14 @@ pub fn validate(raw: RawCalendar) -> Result(Calendar, ValidationError) {
                 product_id: prod_raw,
                 method: method,
                 calscale: calscale,
-                events: events,
-                todos: todos,
-                journals: journals,
-                freebusy: freebusy,
-                timezones: timezones,
-                unknown_components: unknowns,
+                events_rev: events,
+                todos_rev: todos,
+                journals_rev: journals,
+                freebusy_rev: freebusy,
+                timezones_rev: timezones,
+                unknown_components_rev: unknowns,
                 x_properties: x_props,
+                forms: forms_of(properties),
               ))
             }
           }
@@ -240,18 +272,9 @@ fn empty_buckets() -> ComponentBuckets {
 fn classify_components(
   components: List(RawComponent),
 ) -> Result(ComponentBuckets, ValidationError) {
-  case do_classify(components, empty_buckets()) {
-    Error(err) -> Error(err)
-    Ok(b) ->
-      Ok(ComponentBuckets(
-        events: list.reverse(b.events),
-        todos: list.reverse(b.todos),
-        journals: list.reverse(b.journals),
-        freebusy: list.reverse(b.freebusy),
-        timezones: list.reverse(b.timezones),
-        unknowns: list.reverse(b.unknowns),
-      ))
-  }
+  // The buckets come out newest first, which is how `Calendar` stores
+  // its components.
+  do_classify(components, empty_buckets())
 }
 
 fn do_classify(
@@ -525,6 +548,7 @@ fn finalize_event(
         exdates: exdates,
         alarms: alarms,
         x_properties: x_props,
+        forms: forms_of(props),
       ))
     }
   }
@@ -728,6 +752,7 @@ fn finalize_todo(
         exdates: exdates,
         alarms: alarms,
         x_properties: x_props,
+        forms: forms_of(props),
       ))
     }
   }
@@ -793,6 +818,7 @@ fn build_journal_body(
                     status: status,
                     categories: categories,
                     x_properties: x_props,
+                    forms: forms_of(props),
                   ))
                 }
               }
@@ -846,6 +872,7 @@ fn build_freebusy_body(
             attendees: attendees,
             freebusy_periods: periods,
             x_properties: x_props,
+            forms: forms_of(props),
           ))
         }
       }
@@ -877,6 +904,8 @@ fn validate_timezone(comp: RawComponent) -> Result(Timezone, ValidationError) {
                 standard: standard,
                 daylight: daylight,
                 x_properties: x_props,
+                forms: forms_of(props),
+                rule_forms: timezone_children_forms(children),
               ))
             }
           }
@@ -1032,6 +1061,7 @@ fn build_alarm_body(
                 duration: duration,
                 attendees: attendees,
                 x_properties: x_props,
+                forms: forms_of(props),
               ))
             }
           }
@@ -1042,6 +1072,131 @@ fn build_alarm_body(
 // ============================================================
 // Property helpers
 // ============================================================
+
+const date_properties = [
+  "DTSTART",
+  "DTEND",
+  "DUE",
+  "RDATE",
+  "EXDATE",
+  "DTSTAMP",
+  "CREATED",
+  "LAST-MODIFIED",
+  "COMPLETED",
+]
+
+const repeated_properties = [
+  "RDATE",
+  "EXDATE",
+  "CATEGORIES",
+  "ATTENDEE",
+  "FREEBUSY",
+]
+
+// The form of the first occurrence of each single-valued property,
+// which is the one the model keeps, and the form of every retained
+// repeated value in document order.
+fn forms_of(props: List(RawProperty)) -> Dict(String, List(PropertyForm)) {
+  list.fold(props, dict.new(), fn(acc, prop) {
+    let RawProperty(name: name, parameters: params, raw_value: raw, ..) = prop
+    case list.contains(repeated_properties, name) {
+      True -> {
+        let values = case name {
+          "RDATE" | "EXDATE" -> string.split(raw, ",")
+          "CATEGORIES" ->
+            case split_text_list(raw) {
+              Ok(values) -> values
+              // The component validator has already checked TEXT escapes.
+              Error(_) -> []
+            }
+          _ -> [raw]
+        }
+        let line = list.map(values, value_form(name, params, _))
+        case dict.get(acc, name) {
+          Ok(previous) -> dict.insert(acc, name, prepend_all(line, previous))
+          Error(_) -> dict.insert(acc, name, list.reverse(line))
+        }
+      }
+      False ->
+        case dict.has_key(acc, name) && !string.starts_with(name, "X-") {
+          True -> acc
+          False -> dict.insert(acc, name, [value_form(name, params, raw)])
+        }
+    }
+  })
+  |> dict.map_values(fn(name, forms) {
+    case list.contains(repeated_properties, name) {
+      True -> list.reverse(forms)
+      False -> forms
+    }
+  })
+  |> dict.filter(fn(name, forms) {
+    list.any(forms, fn(form) {
+      form.parameters != []
+      || form.raw_text
+      || { !form.utc && list.contains(date_properties, name) }
+    })
+  })
+}
+
+fn value_form(
+  name: String,
+  params: List(Parameter),
+  raw: String,
+) -> PropertyForm {
+  PropertyForm(
+    parameters: params,
+    utc: string.ends_with(raw, "Z"),
+    date_only: !string.contains(raw, "T"),
+    raw_text: {
+      string.starts_with(name, "X-") || name == "PRODID" || name == "TZNAME"
+    }
+      && {
+      string.contains(raw, "\\")
+      || string.contains(raw, ",")
+      || string.contains(raw, ";")
+    },
+  )
+}
+
+fn is_date_form(forms: Dict(String, List(PropertyForm)), name: String) -> Bool {
+  case dict.get(forms, name) {
+    Ok([form, ..]) ->
+      form.date_only
+      || list.any(form.parameters, fn(p) {
+        string.uppercase(p.name) == "VALUE"
+        && string.uppercase(p.value) == "DATE"
+      })
+    _ -> False
+  }
+}
+
+// A setter gives `name` a UTC DATE-TIME. RFC 5545 wants DTSTART and
+// DTEND (or DUE) to share a value type, so a DATE `partner` is reset
+// to the same UTC DATE-TIME form.
+fn replace_date_form(
+  forms: Dict(String, List(PropertyForm)),
+  name: String,
+  partner: String,
+) -> Dict(String, List(PropertyForm)) {
+  let forms = dict.delete(forms, name)
+  case is_date_form(forms, partner) {
+    True -> dict.delete(forms, partner)
+    False -> forms
+  }
+}
+
+// An appended value has no parsed parameters. Dates default to UTC.
+// Keep a placeholder so subsequent values stay aligned with their forms.
+fn append_default_form(
+  forms: Dict(String, List(PropertyForm)),
+  name: String,
+) -> Dict(String, List(PropertyForm)) {
+  case dict.get(forms, name) {
+    Ok(existing) -> dict.insert(forms, name, list.append(existing, [utc_form]))
+    Error(_) -> forms
+  }
+}
 
 fn find_value(props: List(RawProperty), name: String) -> Option(String) {
   case list.find(props, fn(p) { p.name == name }) {
@@ -1137,7 +1292,7 @@ fn fold_categories(
   }
 }
 
-fn prepend_all(items: List(String), acc: List(String)) -> List(String) {
+fn prepend_all(items: List(a), acc: List(a)) -> List(a) {
   case items {
     [] -> acc
     [first, ..rest] -> prepend_all(rest, [first, ..acc])
@@ -1148,27 +1303,25 @@ fn prepend_all(items: List(String), acc: List(String)) -> List(String) {
 // Text escape / list splitting
 // ============================================================
 
-const sentinel = "\u{0001}"
-
+// Split only unescaped commas; an escaped backslash before a comma
+// leaves that comma as a separator. Preserve escape pairs for unescape_text.
 fn split_text_list(raw: String) -> Result(List(String), ValidationError) {
-  let masked = string.replace(raw, "\\,", sentinel)
-  let chunks = string.split(masked, ",")
-  unescape_chunks(chunks, [])
+  split_text_values(string.to_graphemes(raw), [], [])
+  |> list.try_map(unescape_text)
 }
 
-fn unescape_chunks(
-  chunks: List(String),
+fn split_text_values(
+  rest: List(String),
+  current: List(String),
   acc: List(String),
-) -> Result(List(String), ValidationError) {
-  case chunks {
-    [] -> Ok(list.reverse(acc))
-    [first, ..rest] -> {
-      let restored = string.replace(first, sentinel, "\\,")
-      case unescape_text(restored) {
-        Error(err) -> Error(err)
-        Ok(s) -> unescape_chunks(rest, [s, ..acc])
-      }
-    }
+) -> List(String) {
+  case rest {
+    [] -> list.reverse([string.concat(list.reverse(current)), ..acc])
+    ["\\", escaped, ..tail] ->
+      split_text_values(tail, [escaped, "\\", ..current], acc)
+    [",", ..tail] ->
+      split_text_values(tail, [], [string.concat(list.reverse(current)), ..acc])
+    [char, ..tail] -> split_text_values(tail, [char, ..current], acc)
   }
 }
 
@@ -1303,18 +1456,8 @@ fn fold_dt_lists(
     [first, ..rest] ->
       case parse_datetime_list(name, first) {
         Error(err) -> Error(err)
-        Ok(dts) -> fold_dt_lists(name, rest, prepend_dts(dts, acc))
+        Ok(dts) -> fold_dt_lists(name, rest, prepend_all(dts, acc))
       }
-  }
-}
-
-fn prepend_dts(
-  items: List(schedule_ast.DateTime),
-  acc: List(schedule_ast.DateTime),
-) -> List(schedule_ast.DateTime) {
-  case items {
-    [] -> acc
-    [first, ..rest] -> prepend_dts(rest, [first, ..acc])
   }
 }
 
@@ -1345,6 +1488,78 @@ fn do_parse_datetime_list(
 // Calendar accessors
 // ============================================================
 
+@internal
+pub fn calendar_forms(cal: Calendar) -> Dict(String, List(PropertyForm)) {
+  cal.forms
+}
+
+@internal
+pub fn timezone_forms(tz: Timezone) -> Dict(String, List(PropertyForm)) {
+  tz.forms
+}
+
+@internal
+pub fn timezone_rule_forms(
+  tz: Timezone,
+  kind: String,
+  index: Int,
+) -> Dict(String, List(PropertyForm)) {
+  case dict.get(tz.rule_forms, #(kind, index)) {
+    Ok(forms) -> forms
+    Error(_) -> dict.new()
+  }
+}
+
+fn timezone_children_forms(
+  children: List(RawComponent),
+) -> Dict(#(String, Int), Dict(String, List(PropertyForm))) {
+  ["STANDARD", "DAYLIGHT"]
+  |> list.flat_map(fn(kind) {
+    children
+    |> list.filter(fn(child) { child.kind == kind })
+    |> list.index_map(fn(child, index) {
+      let forms = forms_of(child.properties)
+      // A built timezone rule defaults to local time, unlike other
+      // components. Retain even the otherwise-default parsed UTC form.
+      let forms = case find_prop(child.properties, "DTSTART") {
+        Some(prop) ->
+          dict.insert(forms, "DTSTART", [
+            value_form("DTSTART", prop.parameters, prop.raw_value),
+          ])
+        None -> forms
+      }
+      #(#(kind, index), forms)
+    })
+  })
+  |> list.filter(fn(pair) { dict.size(pair.1) > 0 })
+  |> dict.from_list
+}
+
+@internal
+pub fn event_forms(event: Event) -> Dict(String, List(PropertyForm)) {
+  event.forms
+}
+
+@internal
+pub fn todo_forms(t: Todo) -> Dict(String, List(PropertyForm)) {
+  t.forms
+}
+
+@internal
+pub fn journal_forms(j: Journal) -> Dict(String, List(PropertyForm)) {
+  j.forms
+}
+
+@internal
+pub fn freebusy_forms(fb: FreeBusy) -> Dict(String, List(PropertyForm)) {
+  fb.forms
+}
+
+@internal
+pub fn alarm_forms(alarm: Alarm) -> Dict(String, List(PropertyForm)) {
+  alarm.forms
+}
+
 pub fn version(cal: Calendar) -> String {
   cal.version
 }
@@ -1362,27 +1577,27 @@ pub fn calscale(cal: Calendar) -> Option(String) {
 }
 
 pub fn events(cal: Calendar) -> List(Event) {
-  cal.events
+  list.reverse(cal.events_rev)
 }
 
 pub fn todos(cal: Calendar) -> List(Todo) {
-  cal.todos
+  list.reverse(cal.todos_rev)
 }
 
 pub fn journals(cal: Calendar) -> List(Journal) {
-  cal.journals
+  list.reverse(cal.journals_rev)
 }
 
 pub fn freebusy(cal: Calendar) -> List(FreeBusy) {
-  cal.freebusy
+  list.reverse(cal.freebusy_rev)
 }
 
 pub fn timezones(cal: Calendar) -> List(Timezone) {
-  cal.timezones
+  list.reverse(cal.timezones_rev)
 }
 
 pub fn unknown_components(cal: Calendar) -> List(UnknownComponent) {
-  cal.unknown_components
+  list.reverse(cal.unknown_components_rev)
 }
 
 pub fn calendar_x_properties(cal: Calendar) -> Dict(String, String) {
@@ -1706,52 +1921,57 @@ pub fn new_calendar(
     product_id: prod_id,
     method: None,
     calscale: None,
-    events: [],
-    todos: [],
-    journals: [],
-    freebusy: [],
-    timezones: [],
-    unknown_components: [],
+    events_rev: [],
+    todos_rev: [],
+    journals_rev: [],
+    freebusy_rev: [],
+    timezones_rev: [],
+    unknown_components_rev: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_method(cal: Calendar, method: String) -> Calendar {
-  Calendar(..cal, method: Some(method))
+  Calendar(..cal, method: Some(method), forms: dict.delete(cal.forms, "METHOD"))
 }
 
 pub fn with_calscale(cal: Calendar, scale: String) -> Calendar {
-  Calendar(..cal, calscale: Some(scale))
+  Calendar(
+    ..cal,
+    calscale: Some(scale),
+    forms: dict.delete(cal.forms, "CALSCALE"),
+  )
 }
 
 pub fn add_event(cal: Calendar, event: Event) -> Calendar {
-  Calendar(..cal, events: list.append(cal.events, [event]))
+  Calendar(..cal, events_rev: [event, ..cal.events_rev])
 }
 
 pub fn add_todo(cal: Calendar, t: Todo) -> Calendar {
-  Calendar(..cal, todos: list.append(cal.todos, [t]))
+  Calendar(..cal, todos_rev: [t, ..cal.todos_rev])
 }
 
 pub fn add_journal(cal: Calendar, j: Journal) -> Calendar {
-  Calendar(..cal, journals: list.append(cal.journals, [j]))
+  Calendar(..cal, journals_rev: [j, ..cal.journals_rev])
 }
 
 pub fn add_freebusy(cal: Calendar, fb: FreeBusy) -> Calendar {
-  Calendar(..cal, freebusy: list.append(cal.freebusy, [fb]))
+  Calendar(..cal, freebusy_rev: [fb, ..cal.freebusy_rev])
 }
 
 pub fn add_timezone(cal: Calendar, tz: Timezone) -> Calendar {
-  Calendar(..cal, timezones: list.append(cal.timezones, [tz]))
+  Calendar(..cal, timezones_rev: [tz, ..cal.timezones_rev])
 }
 
 pub fn add_unknown_component(
   cal: Calendar,
   component: UnknownComponent,
 ) -> Calendar {
-  Calendar(
-    ..cal,
-    unknown_components: list.append(cal.unknown_components, [component]),
-  )
+  Calendar(..cal, unknown_components_rev: [
+    component,
+    ..cal.unknown_components_rev
+  ])
 }
 
 pub fn with_calendar_x_property(
@@ -1759,7 +1979,11 @@ pub fn with_calendar_x_property(
   name: String,
   value: String,
 ) -> Calendar {
-  Calendar(..cal, x_properties: dict.insert(cal.x_properties, name, value))
+  Calendar(
+    ..cal,
+    x_properties: dict.insert(cal.x_properties, name, value),
+    forms: dict.delete(cal.forms, name),
+  )
 }
 
 // ============================================================
@@ -1795,11 +2019,16 @@ pub fn new_event(
     exdates: [],
     alarms: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_dtstart(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtstart: Some(dt))
+  Event(
+    ..event,
+    dtstart: Some(dt),
+    forms: replace_date_form(event.forms, "DTSTART", "DTEND"),
+  )
 }
 
 pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
@@ -1807,7 +2036,11 @@ pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
 }
 
 pub fn with_dtend(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtend: Some(dt))
+  Event(
+    ..event,
+    dtend: Some(dt),
+    forms: replace_date_form(event.forms, "DTEND", "DTSTART"),
+  )
 }
 
 pub fn with_dtend_tzid(event: Event, tzid: String) -> Event {
@@ -1815,67 +2048,111 @@ pub fn with_dtend_tzid(event: Event, tzid: String) -> Event {
 }
 
 pub fn with_duration(event: Event, value: String) -> Event {
-  Event(..event, duration: Some(value))
+  Event(
+    ..event,
+    duration: Some(value),
+    forms: dict.delete(event.forms, "DURATION"),
+  )
 }
 
 pub fn with_summary(event: Event, value: String) -> Event {
-  Event(..event, summary: Some(value))
+  Event(
+    ..event,
+    summary: Some(value),
+    forms: dict.delete(event.forms, "SUMMARY"),
+  )
 }
 
 pub fn with_description(event: Event, value: String) -> Event {
-  Event(..event, description: Some(value))
+  Event(
+    ..event,
+    description: Some(value),
+    forms: dict.delete(event.forms, "DESCRIPTION"),
+  )
 }
 
 pub fn with_location(event: Event, value: String) -> Event {
-  Event(..event, location: Some(value))
+  Event(
+    ..event,
+    location: Some(value),
+    forms: dict.delete(event.forms, "LOCATION"),
+  )
 }
 
 pub fn with_status(event: Event, value: String) -> Event {
-  Event(..event, status: Some(value))
+  Event(..event, status: Some(value), forms: dict.delete(event.forms, "STATUS"))
 }
 
 pub fn with_organizer(event: Event, value: String) -> Event {
-  Event(..event, organizer: Some(value))
+  Event(
+    ..event,
+    organizer: Some(value),
+    forms: dict.delete(event.forms, "ORGANIZER"),
+  )
 }
 
 pub fn add_attendee(event: Event, value: String) -> Event {
-  Event(..event, attendees: list.append(event.attendees, [value]))
+  Event(
+    ..event,
+    attendees: list.append(event.attendees, [value]),
+    forms: append_default_form(event.forms, "ATTENDEE"),
+  )
 }
 
 pub fn add_category(event: Event, value: String) -> Event {
-  Event(..event, categories: list.append(event.categories, [value]))
+  Event(
+    ..event,
+    categories: list.append(event.categories, [value]),
+    forms: append_default_form(event.forms, "CATEGORIES"),
+  )
 }
 
 pub fn with_url(event: Event, value: String) -> Event {
-  Event(..event, url: Some(value))
+  Event(..event, url: Some(value), forms: dict.delete(event.forms, "URL"))
 }
 
 pub fn with_created(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, created: Some(dt))
+  Event(..event, created: Some(dt), forms: dict.delete(event.forms, "CREATED"))
 }
 
 pub fn with_last_modified(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, last_modified: Some(dt))
+  Event(
+    ..event,
+    last_modified: Some(dt),
+    forms: dict.delete(event.forms, "LAST-MODIFIED"),
+  )
 }
 
 pub fn with_sequence(event: Event, value: Int) -> Event {
-  Event(..event, sequence: value)
+  Event(..event, sequence: value, forms: dict.delete(event.forms, "SEQUENCE"))
 }
 
 pub fn with_transparency(event: Event, value: String) -> Event {
-  Event(..event, transparency: Some(value))
+  Event(
+    ..event,
+    transparency: Some(value),
+    forms: dict.delete(event.forms, "TRANSP"),
+  )
 }
 
 pub fn with_rrule(event: Event, rule: rule_ast.RawRRule) -> Event {
-  Event(..event, rrule: Some(rule))
+  Event(..event, rrule: Some(rule), forms: dict.delete(event.forms, "RRULE"))
 }
 
 pub fn add_rdate(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, rdates: list.append(event.rdates, [dt]))
+  Event(
+    ..event,
+    rdates: list.append(event.rdates, [dt]),
+    forms: append_default_form(event.forms, "RDATE"),
+  )
 }
 
 pub fn add_exdate(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, exdates: list.append(event.exdates, [dt]))
+  Event(
+    ..event,
+    exdates: list.append(event.exdates, [dt]),
+    forms: append_default_form(event.forms, "EXDATE"),
+  )
 }
 
 pub fn add_alarm(event: Event, alarm: Alarm) -> Event {
@@ -1887,7 +2164,11 @@ pub fn with_event_x_property(
   name: String,
   value: String,
 ) -> Event {
-  Event(..event, x_properties: dict.insert(event.x_properties, name, value))
+  Event(
+    ..event,
+    x_properties: dict.insert(event.x_properties, name, value),
+    forms: dict.delete(event.forms, name),
+  )
 }
 
 // ============================================================
@@ -1915,55 +2196,80 @@ pub fn new_todo(
     exdates: [],
     alarms: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_todo_dtstart(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, dtstart: Some(dt))
+  Todo(
+    ..t,
+    dtstart: Some(dt),
+    forms: replace_date_form(t.forms, "DTSTART", "DUE"),
+  )
 }
 
 pub fn with_todo_due(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, due: Some(dt))
+  Todo(..t, due: Some(dt), forms: replace_date_form(t.forms, "DUE", "DTSTART"))
 }
 
 pub fn with_todo_completed(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, completed: Some(dt))
+  Todo(..t, completed: Some(dt), forms: dict.delete(t.forms, "COMPLETED"))
 }
 
 pub fn with_todo_summary(t: Todo, value: String) -> Todo {
-  Todo(..t, summary: Some(value))
+  Todo(..t, summary: Some(value), forms: dict.delete(t.forms, "SUMMARY"))
 }
 
 pub fn with_todo_description(t: Todo, value: String) -> Todo {
-  Todo(..t, description: Some(value))
+  Todo(
+    ..t,
+    description: Some(value),
+    forms: dict.delete(t.forms, "DESCRIPTION"),
+  )
 }
 
 pub fn with_todo_status(t: Todo, value: String) -> Todo {
-  Todo(..t, status: Some(value))
+  Todo(..t, status: Some(value), forms: dict.delete(t.forms, "STATUS"))
 }
 
 pub fn with_todo_percent_complete(t: Todo, value: Int) -> Todo {
-  Todo(..t, percent_complete: Some(value))
+  Todo(
+    ..t,
+    percent_complete: Some(value),
+    forms: dict.delete(t.forms, "PERCENT-COMPLETE"),
+  )
 }
 
 pub fn with_todo_priority(t: Todo, value: Int) -> Todo {
-  Todo(..t, priority: Some(value))
+  Todo(..t, priority: Some(value), forms: dict.delete(t.forms, "PRIORITY"))
 }
 
 pub fn add_todo_category(t: Todo, value: String) -> Todo {
-  Todo(..t, categories: list.append(t.categories, [value]))
+  Todo(
+    ..t,
+    categories: list.append(t.categories, [value]),
+    forms: append_default_form(t.forms, "CATEGORIES"),
+  )
 }
 
 pub fn with_todo_rrule(t: Todo, rule: rule_ast.RawRRule) -> Todo {
-  Todo(..t, rrule: Some(rule))
+  Todo(..t, rrule: Some(rule), forms: dict.delete(t.forms, "RRULE"))
 }
 
 pub fn add_todo_rdate(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, rdates: list.append(t.rdates, [dt]))
+  Todo(
+    ..t,
+    rdates: list.append(t.rdates, [dt]),
+    forms: append_default_form(t.forms, "RDATE"),
+  )
 }
 
 pub fn add_todo_exdate(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, exdates: list.append(t.exdates, [dt]))
+  Todo(
+    ..t,
+    exdates: list.append(t.exdates, [dt]),
+    forms: append_default_form(t.forms, "EXDATE"),
+  )
 }
 
 pub fn add_todo_alarm(t: Todo, alarm: Alarm) -> Todo {
@@ -1971,7 +2277,11 @@ pub fn add_todo_alarm(t: Todo, alarm: Alarm) -> Todo {
 }
 
 pub fn with_todo_x_property(t: Todo, name: String, value: String) -> Todo {
-  Todo(..t, x_properties: dict.insert(t.x_properties, name, value))
+  Todo(
+    ..t,
+    x_properties: dict.insert(t.x_properties, name, value),
+    forms: dict.delete(t.forms, name),
+  )
 }
 
 // ============================================================
@@ -1991,27 +2301,36 @@ pub fn new_journal(
     status: None,
     categories: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_journal_dtstart(j: Journal, dt: schedule_ast.DateTime) -> Journal {
-  Journal(..j, dtstart: Some(dt))
+  Journal(..j, dtstart: Some(dt), forms: dict.delete(j.forms, "DTSTART"))
 }
 
 pub fn with_journal_summary(j: Journal, value: String) -> Journal {
-  Journal(..j, summary: Some(value))
+  Journal(..j, summary: Some(value), forms: dict.delete(j.forms, "SUMMARY"))
 }
 
 pub fn with_journal_description(j: Journal, value: String) -> Journal {
-  Journal(..j, description: Some(value))
+  Journal(
+    ..j,
+    description: Some(value),
+    forms: dict.delete(j.forms, "DESCRIPTION"),
+  )
 }
 
 pub fn with_journal_status(j: Journal, value: String) -> Journal {
-  Journal(..j, status: Some(value))
+  Journal(..j, status: Some(value), forms: dict.delete(j.forms, "STATUS"))
 }
 
 pub fn add_journal_category(j: Journal, value: String) -> Journal {
-  Journal(..j, categories: list.append(j.categories, [value]))
+  Journal(
+    ..j,
+    categories: list.append(j.categories, [value]),
+    forms: append_default_form(j.forms, "CATEGORIES"),
+  )
 }
 
 pub fn with_journal_x_property(
@@ -2019,7 +2338,11 @@ pub fn with_journal_x_property(
   name: String,
   value: String,
 ) -> Journal {
-  Journal(..j, x_properties: dict.insert(j.x_properties, name, value))
+  Journal(
+    ..j,
+    x_properties: dict.insert(j.x_properties, name, value),
+    forms: dict.delete(j.forms, name),
+  )
 }
 
 // ============================================================
@@ -2039,6 +2362,7 @@ pub fn new_freebusy(
     attendees: [],
     freebusy_periods: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
@@ -2046,26 +2370,38 @@ pub fn with_freebusy_dtstart(
   fb: FreeBusy,
   dt: schedule_ast.DateTime,
 ) -> FreeBusy {
-  FreeBusy(..fb, dtstart: Some(dt))
+  FreeBusy(..fb, dtstart: Some(dt), forms: dict.delete(fb.forms, "DTSTART"))
 }
 
 pub fn with_freebusy_dtend(
   fb: FreeBusy,
   dt: schedule_ast.DateTime,
 ) -> FreeBusy {
-  FreeBusy(..fb, dtend: Some(dt))
+  FreeBusy(..fb, dtend: Some(dt), forms: dict.delete(fb.forms, "DTEND"))
 }
 
 pub fn with_freebusy_organizer(fb: FreeBusy, value: String) -> FreeBusy {
-  FreeBusy(..fb, organizer: Some(value))
+  FreeBusy(
+    ..fb,
+    organizer: Some(value),
+    forms: dict.delete(fb.forms, "ORGANIZER"),
+  )
 }
 
 pub fn add_freebusy_attendee(fb: FreeBusy, value: String) -> FreeBusy {
-  FreeBusy(..fb, attendees: list.append(fb.attendees, [value]))
+  FreeBusy(
+    ..fb,
+    attendees: list.append(fb.attendees, [value]),
+    forms: append_default_form(fb.forms, "ATTENDEE"),
+  )
 }
 
 pub fn add_freebusy_period(fb: FreeBusy, value: String) -> FreeBusy {
-  FreeBusy(..fb, freebusy_periods: list.append(fb.freebusy_periods, [value]))
+  FreeBusy(
+    ..fb,
+    freebusy_periods: list.append(fb.freebusy_periods, [value]),
+    forms: append_default_form(fb.forms, "FREEBUSY"),
+  )
 }
 
 pub fn with_freebusy_x_property(
@@ -2073,7 +2409,11 @@ pub fn with_freebusy_x_property(
   name: String,
   value: String,
 ) -> FreeBusy {
-  FreeBusy(..fb, x_properties: dict.insert(fb.x_properties, name, value))
+  FreeBusy(
+    ..fb,
+    x_properties: dict.insert(fb.x_properties, name, value),
+    forms: dict.delete(fb.forms, name),
+  )
 }
 
 // ============================================================
@@ -2088,6 +2428,8 @@ pub fn new_timezone(tzid tzid: String) -> Timezone {
     standard: [],
     daylight: [],
     x_properties: dict.new(),
+    forms: dict.new(),
+    rule_forms: dict.new(),
   )
 }
 
@@ -2095,11 +2437,15 @@ pub fn with_timezone_last_modified(
   tz: Timezone,
   dt: schedule_ast.DateTime,
 ) -> Timezone {
-  Timezone(..tz, last_modified: Some(dt))
+  Timezone(
+    ..tz,
+    last_modified: Some(dt),
+    forms: dict.delete(tz.forms, "LAST-MODIFIED"),
+  )
 }
 
 pub fn with_timezone_url(tz: Timezone, value: String) -> Timezone {
-  Timezone(..tz, tzurl: Some(value))
+  Timezone(..tz, tzurl: Some(value), forms: dict.delete(tz.forms, "TZURL"))
 }
 
 pub fn add_timezone_standard(tz: Timezone, rule: TimezoneRule) -> Timezone {
@@ -2115,7 +2461,11 @@ pub fn with_timezone_x_property(
   name: String,
   value: String,
 ) -> Timezone {
-  Timezone(..tz, x_properties: dict.insert(tz.x_properties, name, value))
+  Timezone(
+    ..tz,
+    x_properties: dict.insert(tz.x_properties, name, value),
+    forms: dict.delete(tz.forms, name),
+  )
 }
 
 pub fn new_timezone_rule(
@@ -2160,27 +2510,44 @@ pub fn new_alarm(action action: String, trigger trigger: String) -> Alarm {
     duration: None,
     attendees: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_alarm_description(alarm: Alarm, value: String) -> Alarm {
-  Alarm(..alarm, description: Some(value))
+  Alarm(
+    ..alarm,
+    description: Some(value),
+    forms: dict.delete(alarm.forms, "DESCRIPTION"),
+  )
 }
 
 pub fn with_alarm_summary(alarm: Alarm, value: String) -> Alarm {
-  Alarm(..alarm, summary: Some(value))
+  Alarm(
+    ..alarm,
+    summary: Some(value),
+    forms: dict.delete(alarm.forms, "SUMMARY"),
+  )
 }
 
 pub fn with_alarm_repeat(alarm: Alarm, value: Int) -> Alarm {
-  Alarm(..alarm, repeat: Some(value))
+  Alarm(..alarm, repeat: Some(value), forms: dict.delete(alarm.forms, "REPEAT"))
 }
 
 pub fn with_alarm_duration(alarm: Alarm, value: String) -> Alarm {
-  Alarm(..alarm, duration: Some(value))
+  Alarm(
+    ..alarm,
+    duration: Some(value),
+    forms: dict.delete(alarm.forms, "DURATION"),
+  )
 }
 
 pub fn add_alarm_attendee(alarm: Alarm, value: String) -> Alarm {
-  Alarm(..alarm, attendees: list.append(alarm.attendees, [value]))
+  Alarm(
+    ..alarm,
+    attendees: list.append(alarm.attendees, [value]),
+    forms: append_default_form(alarm.forms, "ATTENDEE"),
+  )
 }
 
 pub fn with_alarm_x_property(
@@ -2188,5 +2555,9 @@ pub fn with_alarm_x_property(
   name: String,
   value: String,
 ) -> Alarm {
-  Alarm(..alarm, x_properties: dict.insert(alarm.x_properties, name, value))
+  Alarm(
+    ..alarm,
+    x_properties: dict.insert(alarm.x_properties, name, value),
+    forms: dict.delete(alarm.forms, name),
+  )
 }

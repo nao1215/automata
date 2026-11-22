@@ -10,6 +10,7 @@ import automata/fsevent/watch
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/order
 import gleam/set
 import gleeunit/should
 
@@ -348,4 +349,104 @@ pub fn compare_entry_returns_empty_for_no_change_test() {
   diff.compare_entry(old: Some(e), new: Some(e))
   |> set.size
   |> should.equal(0)
+}
+
+pub fn rename_masked_without_rename_reports_remove_and_create_test() {
+  // A watch without Rename used to drop the whole move: the Remove at
+  // the old path had been folded into a Rename that the mask removed.
+  let prev = snap([file("/a", 10, 1, 0o644, None, Some("inode-1"))])
+  let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
+  let create_and_remove =
+    watch.watch_no_ops()
+    |> watch.with_ops(ops: op.ops_from_list([Create, Remove]))
+  let events = fsevent.diff(prev: prev, curr: curr, watch: create_and_remove)
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> should.equal([Remove])
+  ops_of(b_ev) |> should.equal([Create])
+  event.event_renamed_from(event: b_ev) |> should.equal(None)
+}
+
+pub fn rename_over_existing_file_emits_rename_test() {
+  // `mv /a /b` where /b already existed: /b now holds /a's file_id.
+  let prev =
+    snap([
+      file("/a", 10, 1, 0o644, None, Some("inode-1")),
+      file("/b", 5, 1, 0o644, None, Some("inode-2")),
+    ])
+  let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
+  let assert [ev] = events
+  path.path_to_string(event.event_path(event: ev)) |> should.equal("/b")
+  ops_of(ev) |> should.equal([Rename])
+  event.event_renamed_from(event: ev) |> should.equal(Some(p("/a")))
+}
+
+pub fn swapped_files_emit_two_renames_test() {
+  let prev =
+    snap([
+      file("/a", 10, 1, 0o644, None, Some("inode-1")),
+      file("/b", 5, 1, 0o644, None, Some("inode-2")),
+    ])
+  let curr =
+    snap([
+      file("/a", 5, 1, 0o644, None, Some("inode-2")),
+      file("/b", 10, 1, 0o644, None, Some("inode-1")),
+    ])
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> should.equal([Rename])
+  event.event_renamed_from(event: a_ev) |> should.equal(Some(p("/b")))
+  ops_of(b_ev) |> should.equal([Rename])
+  event.event_renamed_from(event: b_ev) |> should.equal(Some(p("/a")))
+}
+
+pub fn rename_over_existing_file_without_rename_watch_reports_create_test() {
+  // `mv /a /b` over an existing /b, watched without Rename: /b now holds
+  // another file, so a Create subscriber must see it.
+  let prev =
+    snap([
+      file("/a", 10, 1, 0o644, None, Some("inode-1")),
+      file("/b", 5, 1, 0o644, None, Some("inode-2")),
+    ])
+  let curr = snap([file("/b", 10, 1, 0o644, None, Some("inode-1"))])
+  let create_and_remove =
+    watch.watch_no_ops()
+    |> watch.with_ops(ops: op.ops_from_list([Create, Remove]))
+  let events = fsevent.diff(prev: prev, curr: curr, watch: create_and_remove)
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> should.equal([Remove])
+  ops_of(b_ev) |> list.sort(op_order) |> should.equal([Create, Remove])
+}
+
+fn op_order(a: ast.Op, b: ast.Op) -> order.Order {
+  int.compare(op_rank(a), op_rank(b))
+}
+
+pub fn rename_with_recreated_source_reports_replacement_test() {
+  let prev = snap([file("/a", 0, 1, 0o644, None, Some("inode-1"))])
+  let curr =
+    snap([
+      file("/a", 0, 1, 0o644, None, Some("inode-2")),
+      file("/b", 0, 1, 0o644, None, Some("inode-1")),
+    ])
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> list.sort(op_order) |> should.equal([Create, Remove])
+  event.event_renamed_from(a_ev) |> should.equal(None)
+  ops_of(b_ev) |> should.equal([Rename])
+  event.event_renamed_from(b_ev) |> should.equal(Some(p("/a")))
+}
+
+fn op_rank(o: ast.Op) -> Int {
+  case o {
+    Create -> 0
+    Write -> 1
+    Remove -> 2
+    Rename -> 3
+    Chmod -> 4
+  }
 }
