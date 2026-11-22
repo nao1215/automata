@@ -75,6 +75,7 @@ pub opaque type Event {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
+    forms: Dict(String, PropertyForm),
   )
 }
 
@@ -96,6 +97,7 @@ pub opaque type Todo {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
+    forms: Dict(String, PropertyForm),
   )
 }
 
@@ -109,6 +111,7 @@ pub opaque type Journal {
     status: Option(String),
     categories: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, PropertyForm),
   )
 }
 
@@ -122,6 +125,7 @@ pub opaque type FreeBusy {
     attendees: List(String),
     freebusy_periods: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, PropertyForm),
   )
 }
 
@@ -156,7 +160,19 @@ pub opaque type Alarm {
     duration: Option(String),
     attendees: List(String),
     x_properties: Dict(String, String),
+    forms: Dict(String, PropertyForm),
   )
+}
+
+/// How a property was written in parsed text: its parameters (such as
+/// `VALUE=DATE`, `TZID` or `CN`) and whether a DATE-TIME value ended in
+/// `Z`. The emitter uses it to write the property back in the same
+/// form. Only parsed properties that carry parameters, and date
+/// properties written without `Z`, have one; built values are written
+/// as UTC DATE-TIME without parameters.
+@internal
+pub type PropertyForm {
+  PropertyForm(parameters: List(Parameter), utc: Bool)
 }
 
 pub type UnknownComponent {
@@ -518,6 +534,7 @@ fn finalize_event(
         exdates: exdates,
         alarms: alarms,
         x_properties: x_props,
+        forms: forms_of(props),
       ))
     }
   }
@@ -721,6 +738,7 @@ fn finalize_todo(
         exdates: exdates,
         alarms: alarms,
         x_properties: x_props,
+        forms: forms_of(props),
       ))
     }
   }
@@ -786,6 +804,7 @@ fn build_journal_body(
                     status: status,
                     categories: categories,
                     x_properties: x_props,
+                    forms: forms_of(props),
                   ))
                 }
               }
@@ -839,6 +858,7 @@ fn build_freebusy_body(
             attendees: attendees,
             freebusy_periods: periods,
             x_properties: x_props,
+            forms: forms_of(props),
           ))
         }
       }
@@ -1025,6 +1045,7 @@ fn build_alarm_body(
                 duration: duration,
                 attendees: attendees,
                 x_properties: x_props,
+                forms: forms_of(props),
               ))
             }
           }
@@ -1035,6 +1056,23 @@ fn build_alarm_body(
 // ============================================================
 // Property helpers
 // ============================================================
+
+const date_properties = ["DTSTART", "DTEND", "DUE", "RDATE", "EXDATE"]
+
+// The form of the first occurrence of each property, which is the one
+// the model keeps.
+fn forms_of(props: List(RawProperty)) -> Dict(String, PropertyForm) {
+  list.fold(props, dict.new(), fn(acc, prop) {
+    let RawProperty(name: name, parameters: params, raw_value: raw, ..) = prop
+    let utc = string.ends_with(raw, "Z")
+    let informative =
+      params != [] || { !utc && list.contains(date_properties, name) }
+    case informative && !dict.has_key(acc, name) {
+      True -> dict.insert(acc, name, PropertyForm(parameters: params, utc: utc))
+      False -> acc
+    }
+  })
+}
 
 fn find_value(props: List(RawProperty), name: String) -> Option(String) {
   case list.find(props, fn(p) { p.name == name }) {
@@ -1337,6 +1375,31 @@ fn do_parse_datetime_list(
 // ============================================================
 // Calendar accessors
 // ============================================================
+
+@internal
+pub fn event_forms(event: Event) -> Dict(String, PropertyForm) {
+  event.forms
+}
+
+@internal
+pub fn todo_forms(t: Todo) -> Dict(String, PropertyForm) {
+  t.forms
+}
+
+@internal
+pub fn journal_forms(j: Journal) -> Dict(String, PropertyForm) {
+  j.forms
+}
+
+@internal
+pub fn freebusy_forms(fb: FreeBusy) -> Dict(String, PropertyForm) {
+  fb.forms
+}
+
+@internal
+pub fn alarm_forms(alarm: Alarm) -> Dict(String, PropertyForm) {
+  alarm.forms
+}
 
 pub fn version(cal: Calendar) -> String {
   cal.version
@@ -1788,11 +1851,12 @@ pub fn new_event(
     exdates: [],
     alarms: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_dtstart(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtstart: Some(dt))
+  Event(..event, dtstart: Some(dt), forms: dict.delete(event.forms, "DTSTART"))
 }
 
 pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
@@ -1800,7 +1864,7 @@ pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
 }
 
 pub fn with_dtend(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtend: Some(dt))
+  Event(..event, dtend: Some(dt), forms: dict.delete(event.forms, "DTEND"))
 }
 
 pub fn with_dtend_tzid(event: Event, tzid: String) -> Event {
@@ -1828,7 +1892,11 @@ pub fn with_status(event: Event, value: String) -> Event {
 }
 
 pub fn with_organizer(event: Event, value: String) -> Event {
-  Event(..event, organizer: Some(value))
+  Event(
+    ..event,
+    organizer: Some(value),
+    forms: dict.delete(event.forms, "ORGANIZER"),
+  )
 }
 
 pub fn add_attendee(event: Event, value: String) -> Event {
@@ -1908,15 +1976,16 @@ pub fn new_todo(
     exdates: [],
     alarms: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_todo_dtstart(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, dtstart: Some(dt))
+  Todo(..t, dtstart: Some(dt), forms: dict.delete(t.forms, "DTSTART"))
 }
 
 pub fn with_todo_due(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, due: Some(dt))
+  Todo(..t, due: Some(dt), forms: dict.delete(t.forms, "DUE"))
 }
 
 pub fn with_todo_completed(t: Todo, dt: schedule_ast.DateTime) -> Todo {
@@ -1984,11 +2053,12 @@ pub fn new_journal(
     status: None,
     categories: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
 pub fn with_journal_dtstart(j: Journal, dt: schedule_ast.DateTime) -> Journal {
-  Journal(..j, dtstart: Some(dt))
+  Journal(..j, dtstart: Some(dt), forms: dict.delete(j.forms, "DTSTART"))
 }
 
 pub fn with_journal_summary(j: Journal, value: String) -> Journal {
@@ -2032,6 +2102,7 @@ pub fn new_freebusy(
     attendees: [],
     freebusy_periods: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 
@@ -2039,18 +2110,22 @@ pub fn with_freebusy_dtstart(
   fb: FreeBusy,
   dt: schedule_ast.DateTime,
 ) -> FreeBusy {
-  FreeBusy(..fb, dtstart: Some(dt))
+  FreeBusy(..fb, dtstart: Some(dt), forms: dict.delete(fb.forms, "DTSTART"))
 }
 
 pub fn with_freebusy_dtend(
   fb: FreeBusy,
   dt: schedule_ast.DateTime,
 ) -> FreeBusy {
-  FreeBusy(..fb, dtend: Some(dt))
+  FreeBusy(..fb, dtend: Some(dt), forms: dict.delete(fb.forms, "DTEND"))
 }
 
 pub fn with_freebusy_organizer(fb: FreeBusy, value: String) -> FreeBusy {
-  FreeBusy(..fb, organizer: Some(value))
+  FreeBusy(
+    ..fb,
+    organizer: Some(value),
+    forms: dict.delete(fb.forms, "ORGANIZER"),
+  )
 }
 
 pub fn add_freebusy_attendee(fb: FreeBusy, value: String) -> FreeBusy {
@@ -2153,6 +2228,7 @@ pub fn new_alarm(action action: String, trigger trigger: String) -> Alarm {
     duration: None,
     attendees: [],
     x_properties: dict.new(),
+    forms: dict.new(),
   )
 }
 

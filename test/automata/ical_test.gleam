@@ -628,3 +628,124 @@ pub fn add_many_events_keeps_order_test() {
   list.first(uids) |> should.equal(Ok("e0"))
   list.last(uids) |> should.equal(Ok("e2999"))
 }
+
+// ============================================================
+// Round trip of value forms and parameters
+// ============================================================
+
+fn wrap_event(lines: List(String)) -> String {
+  string.join(
+    list.flatten([
+      [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//x//EN", "BEGIN:VEVENT",
+        "UID:u@x", "DTSTAMP:20260101T000000Z",
+      ],
+      lines,
+      ["END:VEVENT", "END:VCALENDAR", ""],
+    ]),
+    "\r\n",
+  )
+}
+
+fn encoded_lines(input: String) -> List(String) {
+  let assert Ok(cal) = ical.parse(input)
+  string.split(ical.encode(cal), "\r\n")
+}
+
+pub fn encode_keeps_floating_datetime_test() {
+  // DTSTART without Z is floating local time; adding Z would move it
+  // to UTC.
+  let lines = encoded_lines(minimal_ics)
+  list.contains(lines, "DTSTART:20260511T130000") |> should.equal(True)
+  list.contains(lines, "DTSTART:20260511T130000Z") |> should.equal(False)
+}
+
+pub fn encode_keeps_utc_datetime_test() {
+  encoded_lines(outlook_export_ics)
+  |> list.contains("DTSTART:20260320T130000Z")
+  |> should.equal(True)
+}
+
+pub fn encode_keeps_date_value_test() {
+  let lines =
+    encoded_lines(
+      wrap_event(["DTSTART;VALUE=DATE:20260101", "DTEND;VALUE=DATE:20260102"]),
+    )
+  list.contains(lines, "DTSTART;VALUE=DATE:20260101") |> should.equal(True)
+  list.contains(lines, "DTEND;VALUE=DATE:20260102") |> should.equal(True)
+}
+
+pub fn encode_keeps_date_list_test() {
+  encoded_lines(
+    wrap_event([
+      "DTSTART;VALUE=DATE:20260101", "RDATE;VALUE=DATE:20260105,20260106",
+      "EXDATE;VALUE=DATE:20260108",
+    ]),
+  )
+  |> list.filter(fn(line) {
+    string.starts_with(line, "RDATE") || string.starts_with(line, "EXDATE")
+  })
+  |> should.equal([
+    "RDATE;VALUE=DATE:20260105,20260106", "EXDATE;VALUE=DATE:20260108",
+  ])
+}
+
+pub fn encode_keeps_property_parameters_test() {
+  let lines =
+    encoded_lines(
+      wrap_event([
+        "DTSTART:20260511T130000Z", "ORGANIZER;CN=\"Doe, John: Jr\":mailto:j@x",
+        "SUMMARY;LANGUAGE=de:Kaffee",
+      ]),
+    )
+  list.contains(lines, "ORGANIZER;CN=\"Doe, John: Jr\":mailto:j@x")
+  |> should.equal(True)
+  list.contains(lines, "SUMMARY;LANGUAGE=de:Kaffee") |> should.equal(True)
+}
+
+pub fn encode_keeps_todo_tzid_test() {
+  let input =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VTODO\r\nUID:t@x\r\nDTSTAMP:20260101T000000Z\r\nDUE;TZID=Asia/Tokyo:20260415T170000\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+  encoded_lines(input)
+  |> list.contains("DUE;TZID=Asia/Tokyo:20260415T170000")
+  |> should.equal(True)
+}
+
+pub fn encode_keeps_alarm_trigger_parameters_test() {
+  encoded_lines(
+    wrap_event([
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;RELATED=END:-PT5M",
+      "DESCRIPTION:Soon", "END:VALARM",
+    ]),
+  )
+  |> list.contains("TRIGGER;RELATED=END:-PT5M")
+  |> should.equal(True)
+}
+
+pub fn setter_replaces_parsed_value_form_test() {
+  // A new value from a setter has no form of its own, so it is written
+  // as UTC like any built value.
+  let assert Ok(cal) = ical.parse(wrap_event(["DTSTART;VALUE=DATE:20260101"]))
+  let assert [event] = ical.events(cal)
+  let moved =
+    ical.with_dtstart(event, schedule_ast.datetime(2026, 1, 2, 9, 0, 0))
+  let out =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_event(moved)
+    |> ical.encode
+  string.contains(out, "DTSTART:20260102T090000Z\r\n") |> should.equal(True)
+}
+
+pub fn duplicate_single_valued_property_keeps_first_test() {
+  // RFC 5545 allows DTSTART once; a second one is ignored, both in the
+  // model and in the encoded output.
+  let input =
+    wrap_event(["DTSTART:20260511T130000", "DTSTART:20270101T000000Z"])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [event] = ical.events(cal)
+  ical.event_dtstart(event)
+  |> should.equal(Some(schedule_ast.datetime(2026, 5, 11, 13, 0, 0)))
+  encoded_lines(input)
+  |> list.filter(fn(line) { string.starts_with(line, "DTSTART") })
+  |> should.equal(["DTSTART:20260511T130000"])
+}
