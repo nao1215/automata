@@ -316,7 +316,7 @@ pub fn detect_change() {
 ```
 
 The same `file_id` at a new path is reported as one `Rename` with
-`renamed_from`. Without `file_id`, a move is a `Remove` and a `Create`.
+`renamed_from`. Without `file_id`, a move is a `Remove` and a `Create` (plus `Write` if the file is non-empty).
 `fsevent.with_ops` and `fsevent.unwatch_op` filter which ops are
 reported.
 

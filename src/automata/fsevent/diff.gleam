@@ -22,15 +22,22 @@ import gleam/string
 /// appearance pair up one-to-one, the differ folds the would-be
 /// `Remove` (at the old path) and `Create` (at the new path) into a
 /// single `Rename` event whose `renamed_from` carries the old path.
-/// If no `file_id` is available, or the pairing is ambiguous, the
-/// rename is reported as a `Remove`/`Create` pair instead.
+/// If no `file_id` is available, the pairing is ambiguous, or `watch`
+/// does not include `Rename`, the rename is reported as a `Remove` at
+/// the old path and a `Create` at the new one (plus `Write` when the
+/// new file is non-empty, as for any new file).
 pub fn diff(
   prev prev: Snapshot,
   curr curr: Snapshot,
   watch watch: Watch,
 ) -> List(WatchEvent) {
-  let renames = detect_renames(prev, curr)
-  let suppressed_old_paths = renames_suppressed_paths(renames)
+  // A watch without Rename gets the Remove and Create pair, so a move is
+  // still visible to a Create or Remove subscriber.
+  let renames = case set.contains(watch.watch_op_mask(watch), Rename) {
+    True -> detect_renames(prev, curr)
+    False -> dict.new()
+  }
+  let suppressed_old_paths = renames_suppressed_paths(renames, curr)
   let union = path_union(prev, curr)
 
   union
@@ -221,8 +228,6 @@ fn detect_renames(
 ) -> Dict(String, NormalizedPath) {
   let prev_groups = group_by_file_id(snapshot.entries_unsorted(prev))
   let curr_groups = group_by_file_id(snapshot.entries_unsorted(curr))
-  let prev_paths = set.from_list(snapshot.paths(prev))
-  let curr_paths = set.from_list(snapshot.paths(curr))
 
   prev_groups
   |> dict.to_list
@@ -232,33 +237,48 @@ fn detect_renames(
       Error(_) -> acc
       Ok(curr_entries) ->
         match_disappearance_to_appearance(
+          file_id,
           prev_entries,
           curr_entries,
-          curr_paths,
-          prev_paths,
+          prev,
+          curr,
           acc,
         )
     }
   })
 }
 
+// An entry has left its path when the path is gone from `curr` or now
+// holds a different file_id, and has arrived at a path that was absent
+// from `prev` or held a different file_id. The second case covers a
+// rename over an existing file and two files swapping paths.
 fn match_disappearance_to_appearance(
+  file_id: String,
   prev_entries: List(Entry),
   curr_entries: List(Entry),
-  curr_paths: Set(String),
-  prev_paths: Set(String),
+  prev: Snapshot,
+  curr: Snapshot,
   acc: Dict(String, NormalizedPath),
 ) -> Dict(String, NormalizedPath) {
   let disappeared =
-    prev_entries
-    |> list.filter(fn(e) { !set.contains(curr_paths, snapshot.entry_key(e)) })
+    list.filter(prev_entries, fn(e) {
+      !holds_file_id(curr, snapshot.entry_key(e), file_id)
+    })
   let appeared =
-    curr_entries
-    |> list.filter(fn(e) { !set.contains(prev_paths, snapshot.entry_key(e)) })
+    list.filter(curr_entries, fn(e) {
+      !holds_file_id(prev, snapshot.entry_key(e), file_id)
+    })
   case disappeared, appeared {
     [old], [new] ->
       dict.insert(acc, snapshot.entry_key(new), entry.entry_path(old))
     _, _ -> acc
+  }
+}
+
+fn holds_file_id(s: Snapshot, key: String, file_id: String) -> Bool {
+  case snapshot.lookup_by_key(s, key) {
+    Some(e) -> entry.entry_file_id(e) == Some(file_id)
+    None -> False
   }
 }
 
@@ -275,11 +295,16 @@ fn group_by_file_id(entries: List(Entry)) -> Dict(String, List(Entry)) {
   })
 }
 
+// Old paths of renames that are gone from `curr`. An old path that is
+// still present (a swap, or a new file at the old path) keeps its own
+// event.
 fn renames_suppressed_paths(
   renames: Dict(String, NormalizedPath),
+  curr: Snapshot,
 ) -> Set(String) {
   renames
-  |> dict.to_list
-  |> list.map(fn(pair) { path.path_to_string(pair.1) })
+  |> dict.values
+  |> list.map(path.path_to_string)
+  |> list.filter(fn(key) { snapshot.lookup_by_key(curr, key) == None })
   |> set.from_list
 }
