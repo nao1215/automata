@@ -622,40 +622,49 @@ pub fn matches_every_minute_ignores_seconds_test() {
   cron.matches(spec, at: vdt(2026, 5, 11, 12, 0, 59)) |> should.equal(True)
 }
 
-// --- step value range validation (Vixie cron strictness) ---
+// --- step value range validation ---
+// A step may be as large as the number of values in the field
+// (max - min + 1); such a step fires once per cycle. croniter and cronie
+// accept these (cronie only prints a warning). Expected firings come
+// from croniter 7.0.0.
 
-pub fn validate_rejects_step_above_minute_range_test() {
-  let assert Ok(raw) = cron.parse(input: "*/60 * * * *")
-  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
-    cron.validate(raw: raw)
-  f |> should.equal(cron_ast.Minute)
+fn next_step_firing(expr: String) -> String {
+  let assert Ok(Some(at)) =
+    cron.next_after_string(expr, at: vdt(2026, 5, 11, 12, 30, 0))
+  schedule_ast.to_string(schedule_ast.valid_datetime_value(at))
+}
+
+pub fn validate_accepts_step_equal_to_minute_range_test() {
+  next_step_firing("*/60 * * * *") |> should.equal("2026-05-11T13:00:00")
+}
+
+pub fn validate_accepts_step_equal_to_hour_range_test() {
+  next_step_firing("0 */24 * * *") |> should.equal("2026-05-12T00:00:00")
+}
+
+pub fn validate_accepts_step_equal_to_day_of_month_range_test() {
+  next_step_firing("0 0 */31 * *") |> should.equal("2026-06-01T00:00:00")
+}
+
+pub fn validate_accepts_step_equal_to_month_range_test() {
+  next_step_firing("0 0 1 */12 *") |> should.equal("2027-01-01T00:00:00")
+}
+
+pub fn validate_accepts_step_equal_to_day_of_week_range_test() {
+  // DoW range is 0..=7 (POSIX with 7 as alternate Sunday), so */8 keeps
+  // only Sunday.
+  next_step_firing("0 0 * * */8") |> should.equal("2026-05-17T00:00:00")
 }
 
 pub fn validate_rejects_step_above_hour_range_test() {
-  let assert Ok(raw) = cron.parse(input: "* */24 * * *")
+  let assert Ok(raw) = cron.parse(input: "* */25 * * *")
   let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
     cron.validate(raw: raw)
   f |> should.equal(cron_ast.Hour)
 }
 
-pub fn validate_rejects_step_above_day_of_month_range_test() {
-  let assert Ok(raw) = cron.parse(input: "* * */31 * *")
-  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
-    cron.validate(raw: raw)
-  f |> should.equal(cron_ast.DayOfMonth)
-}
-
-pub fn validate_rejects_step_above_month_range_test() {
-  let assert Ok(raw) = cron.parse(input: "* * * */12 *")
-  let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
-    cron.validate(raw: raw)
-  f |> should.equal(cron_ast.Month)
-}
-
 pub fn validate_rejects_step_above_day_of_week_range_test() {
-  // DoW range is 0..=7 (POSIX with 7 as alternate Sunday), so max - min = 7.
-  // */8 exceeds that.
-  let assert Ok(raw) = cron.parse(input: "* * * * */8")
+  let assert Ok(raw) = cron.parse(input: "* * * * */9")
   let assert Error(cron_validator.InvalidStep(field: f, value: _)) =
     cron.validate(raw: raw)
   f |> should.equal(cron_ast.DayOfWeek)

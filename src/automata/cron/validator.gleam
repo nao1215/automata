@@ -237,7 +237,9 @@ fn parse_step(
           case int.parse(step_text) {
             Error(_) -> Error(InvalidStep(field: field, value: part))
             Ok(step) ->
-              case step > 0 && step <= max - min {
+              // A step can be as large as the number of values in the
+              // field; it then fires once per cycle, as in croniter.
+              case step > 0 && step <= max - min + 1 {
                 False -> Error(InvalidStep(field: field, value: part))
                 True ->
                   case parse_step_base(field, base, min, max, aliases) {
