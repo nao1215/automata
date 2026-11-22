@@ -1081,3 +1081,51 @@ pub fn validate_rejects_repeated_wkst_test() {
   rrule.validate(raw)
   |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
 }
+
+pub fn daily_interval_keeps_all_times_on_aligned_dates_test() {
+  first_occurrences(
+    "FREQ=DAILY;INTERVAL=2;BYHOUR=9,17",
+    vdt(2026, 1, 1, 17, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2026-01-01T17:00:00", "2026-01-03T09:00:00", "2026-01-03T17:00:00",
+    "2026-01-05T09:00:00",
+  ])
+}
+
+pub fn weekly_interval_uses_calendar_weeks_test() {
+  first_occurrences(
+    "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE",
+    vdt(2025, 12, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2025-12-31T09:00:00", "2026-01-12T09:00:00", "2026-01-14T09:00:00",
+    "2026-01-26T09:00:00",
+  ])
+}
+
+pub fn monthly_interval_uses_calendar_months_test() {
+  first_occurrences(
+    "FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=1,31",
+    vdt(2026, 1, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2026-01-31T09:00:00", "2026-03-01T09:00:00", "2026-03-31T09:00:00",
+    "2026-05-01T09:00:00",
+  ])
+}
+
+pub fn yearly_interval_uses_calendar_years_test() {
+  first_occurrences(
+    "FREQ=YEARLY;INTERVAL=2;BYMONTH=1,12;BYMONTHDAY=31",
+    vdt(2025, 12, 31, 9, 0, 0),
+    4,
+  )
+  |> should.equal([
+    "2025-12-31T09:00:00", "2027-01-31T09:00:00", "2027-12-31T09:00:00",
+    "2029-01-31T09:00:00",
+  ])
+}
