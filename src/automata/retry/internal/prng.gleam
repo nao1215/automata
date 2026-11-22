@@ -47,9 +47,8 @@ pub fn next_u32(state state: PrngState) -> #(Int, PrngState) {
 /// Advance the state by one step and return an integer in
 /// `[0, max_inclusive]`.
 ///
-/// Uses a single 32-bit draw plus modulo: cross-target safe and
-/// matches the design requirement that a Decision advances the PRNG
-/// by exactly one step regardless of jitter strategy. Modulo bias is
+/// Uses a single 32-bit draw plus modulo, so it is cross-target safe
+/// and only covers `max_inclusive` up to `2^32 - 1`. Modulo bias is
 /// negligible for the delays a retry policy yields in practice.
 ///
 /// When `max_inclusive` is non-positive, returns `0` and still

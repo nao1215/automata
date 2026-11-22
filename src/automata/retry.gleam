@@ -350,8 +350,20 @@ pub fn start(policy policy: Policy, seed seed: Int) -> Context {
     policy: policy,
     attempt: 0,
     cumulative_delay: unsafe_milliseconds(value: 0),
-    prng: prng.new(seed: seed),
+    prng: warm_up(prng.new(seed: seed), 3),
   )
+}
+
+// Xorshift keeps small seeds small for the first draws (seeds below
+// 2000 gave values below 2^29), so a few draws are discarded first.
+fn warm_up(state: PrngState, draws: Int) -> PrngState {
+  case draws <= 0 {
+    True -> state
+    False -> {
+      let #(_, next) = prng.next_u32(state: state)
+      warm_up(next, draws - 1)
+    }
+  }
 }
 
 /// Number of attempts already completed in this sequence.
@@ -574,11 +586,28 @@ fn apply_jitter(
       let #(_, next) = prng.next_u32(state: state)
       #(base_ms, next)
     }
-    FullJitter -> prng.bounded(state: state, max_inclusive: base_ms)
+    FullJitter -> uniform(state, base_ms)
     EqualJitter -> {
       let half = base_ms / 2
-      let #(extra, next) = prng.bounded(state: state, max_inclusive: half)
+      let #(extra, next) = uniform(state, base_ms - half)
       #(half + extra, next)
+    }
+  }
+}
+
+const max_u32 = 0xFFFFFFFF
+
+// A value in `[0, max_inclusive]`. One 32-bit draw covers ranges up to
+// 2^32 - 1; wider ranges combine two draws into 53 bits, which covers
+// every delay up to `max_safe_milliseconds`.
+fn uniform(state: PrngState, max_inclusive: Int) -> #(Int, PrngState) {
+  case max_inclusive <= max_u32 {
+    True -> prng.bounded(state: state, max_inclusive: max_inclusive)
+    False -> {
+      let #(high, state) = prng.next_u32(state: state)
+      let #(low, state) = prng.next_u32(state: state)
+      let wide = int.bitwise_and(high, 0x1FFFFF) * { max_u32 + 1 } + low
+      #(wide % { max_inclusive + 1 }, state)
     }
   }
 }
