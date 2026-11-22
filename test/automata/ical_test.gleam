@@ -846,3 +846,150 @@ pub fn moving_date_dtstart_also_resets_dtend_test() {
   starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20260101T090000Z"])
   starting_with(lines, "DTEND") |> should.equal(["DTEND:20260102T000000Z"])
 }
+
+fn wrap_component(kind: String, lines: List(String)) -> String {
+  wrap_event(lines)
+  |> string.replace("VEVENT", kind)
+}
+
+pub fn repeated_properties_keep_parameters_per_value_test() {
+  let attendees = [
+    "ATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:a@x",
+    "ATTENDEE;CN=Bob;PARTSTAT=DECLINED:mailto:b@x",
+    "ATTENDEE:mailto:c@x",
+  ]
+  ["VEVENT", "VFREEBUSY", "VALARM"]
+  |> list.each(fn(kind) {
+    let lines = list.append(["ACTION:EMAIL", "TRIGGER:-PT5M"], attendees)
+    let input = case kind {
+      "VALARM" ->
+        wrap_event(list.append(["BEGIN:VALARM", ..lines], ["END:VALARM"]))
+      _ -> wrap_component(kind, lines)
+    }
+    encoded_lines(input)
+    |> starting_with("ATTENDEE")
+    |> should.equal(attendees)
+  })
+}
+
+pub fn freebusy_lines_keep_their_busy_types_test() {
+  let periods = [
+    "FREEBUSY;FBTYPE=FREE:20260101T090000Z/20260101T100000Z",
+    "FREEBUSY;FBTYPE=BUSY-TENTATIVE:20260102T090000Z/PT1H",
+    "FREEBUSY:20260103T090000Z/PT1H",
+  ]
+  wrap_component("VFREEBUSY", periods)
+  |> encoded_lines
+  |> starting_with("FREEBUSY")
+  |> should.equal(periods)
+}
+
+pub fn category_lines_keep_their_languages_test() {
+  let categories = [
+    "CATEGORIES;LANGUAGE=en:Work,Home\\, office",
+    "CATEGORIES;LANGUAGE=de:Arbeit",
+    "CATEGORIES:Travel",
+  ]
+  ["VEVENT", "VTODO", "VJOURNAL"]
+  |> list.each(fn(kind) {
+    wrap_component(kind, categories)
+    |> encoded_lines
+    |> starting_with("CATEGORIES")
+    |> should.equal(categories)
+  })
+}
+
+pub fn appended_properties_do_not_inherit_parsed_parameters_test() {
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "ATTENDEE;CN=Alice:mailto:a@x", "CATEGORIES;LANGUAGE=de:Arbeit",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.add_attendee("mailto:b@x")
+    |> ical.add_category("Work")
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "ATTENDEE")
+  |> should.equal(["ATTENDEE;CN=Alice:mailto:a@x", "ATTENDEE:mailto:b@x"])
+  starting_with(lines, "CATEGORIES")
+  |> should.equal(["CATEGORIES;LANGUAGE=de:Arbeit", "CATEGORIES:Work"])
+}
+
+pub fn event_setters_clear_replaced_property_parameters_test() {
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "SUMMARY;LANGUAGE=de:Alt", "DESCRIPTION;LANGUAGE=de:Alt",
+        "LOCATION;ALTREP=\"cid:old\":Alt", "URL;X-LABEL=old:https://old",
+        "DURATION;X-LABEL=old:PT1H", "STATUS;X-LABEL=old:TENTATIVE",
+        "TRANSP;X-LABEL=old:OPAQUE",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_summary("New")
+    |> ical.with_description("New")
+    |> ical.with_location("New")
+    |> ical.with_url("https://new")
+    |> ical.with_duration("PT2H")
+    |> ical.with_status("CONFIRMED")
+    |> ical.with_transparency("TRANSPARENT")
+    |> list.wrap
+    |> encode_events
+  [
+    "SUMMARY:New",
+    "DESCRIPTION:New",
+    "LOCATION:New",
+    "URL:https://new",
+    "DURATION:PT2H",
+    "STATUS:CONFIRMED",
+    "TRANSP:TRANSPARENT",
+  ]
+  |> list.each(fn(expected) { list.contains(lines, expected) |> should.be_true })
+}
+
+pub fn other_component_setters_clear_replaced_parameters_test() {
+  let input =
+    string.concat([
+      "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n",
+      "BEGIN:VTODO\r\nUID:t\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY;LANGUAGE=de:Alt\r\nEND:VTODO\r\n",
+      "BEGIN:VJOURNAL\r\nUID:j\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY;LANGUAGE=de:Alt\r\nEND:VJOURNAL\r\n",
+      "BEGIN:VEVENT\r\nUID:e\r\nDTSTAMP:20260101T000000Z\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION;LANGUAGE=de:Alt\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    ])
+  let assert Ok(cal) = ical.parse(input)
+  let assert [task] = ical.todos(cal)
+  let assert [journal] = ical.journals(cal)
+  let assert [event] = ical.events(cal)
+  let assert [alarm] = ical.event_alarms(event)
+  let lines =
+    ical.new_calendar("2.0", "-//x//EN")
+    |> ical.add_todo(ical.with_todo_summary(task, "New"))
+    |> ical.add_journal(ical.with_journal_summary(journal, "New"))
+    |> ical.add_event(
+      ical.new_event("new", stamp())
+      |> ical.add_alarm(ical.with_alarm_description(alarm, "New")),
+    )
+    |> ical.encode
+    |> string.split("\r\n")
+  starting_with(lines, "SUMMARY")
+  |> should.equal(["SUMMARY:New", "SUMMARY:New"])
+  starting_with(lines, "DESCRIPTION") |> should.equal(["DESCRIPTION:New"])
+}
+
+pub fn exdate_lines_keep_their_own_forms_on_events_and_todos_test() {
+  let dates = [
+    "EXDATE:20260101T090000Z", "EXDATE;TZID=Asia/Tokyo:20260102T090000",
+    "EXDATE;VALUE=DATE:20260103,20260104", "EXDATE:20260105T090000",
+  ]
+  ["VEVENT", "VTODO"]
+  |> list.each(fn(kind) {
+    encoded_lines(wrap_component(kind, dates))
+    |> starting_with("EXDATE")
+    |> should.equal(dates)
+  })
+}

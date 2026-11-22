@@ -123,9 +123,9 @@ fn render_event(event: ical_validator.Event) -> List(String) {
   let organizer_lines =
     render_opt(forms, "ORGANIZER", ical_validator.event_organizer(event))
   let attendee_lines =
-    list.map(ical_validator.event_attendees(event), fn(a) { "ATTENDEE:" <> a })
+    render_lines(forms, "ATTENDEE", ical_validator.event_attendees(event))
   let categories_lines =
-    render_categories(ical_validator.event_categories(event))
+    render_categories(forms, ical_validator.event_categories(event))
   let url_lines = render_opt(forms, "URL", ical_validator.event_url(event))
   let created_lines = case ical_validator.event_created(event) {
     Some(dt) -> ["CREATED:" <> render_datetime_utc(dt)]
@@ -210,7 +210,8 @@ fn render_todo(t: ical_validator.Todo) -> List(String) {
     Some(n) -> ["PRIORITY:" <> int.to_string(n)]
     None -> []
   }
-  let categories_lines = render_categories(ical_validator.todo_categories(t))
+  let categories_lines =
+    render_categories(forms, ical_validator.todo_categories(t))
   let rrule_lines = case ical_validator.todo_rrule(t) {
     Some(raw) -> ["RRULE:" <> render_raw_rrule(raw)]
     None -> []
@@ -261,7 +262,8 @@ fn render_journal(j: ical_validator.Journal) -> List(String) {
     render_text_opt(forms, "DESCRIPTION", ical_validator.journal_description(j))
   let status_lines =
     render_opt(forms, "STATUS", ical_validator.journal_status(j))
-  let categories_lines = render_categories(ical_validator.journal_categories(j))
+  let categories_lines =
+    render_categories(forms, ical_validator.journal_categories(j))
   let x_lines = render_x_properties(ical_validator.journal_x_properties(j))
 
   list.flatten([
@@ -294,9 +296,9 @@ fn render_freebusy(fb: ical_validator.FreeBusy) -> List(String) {
   let organizer_lines =
     render_opt(forms, "ORGANIZER", ical_validator.freebusy_organizer(fb))
   let attendee_lines =
-    list.map(ical_validator.freebusy_attendees(fb), fn(a) { "ATTENDEE:" <> a })
+    render_lines(forms, "ATTENDEE", ical_validator.freebusy_attendees(fb))
   let period_lines =
-    list.map(ical_validator.freebusy_periods(fb), fn(p) { "FREEBUSY:" <> p })
+    render_lines(forms, "FREEBUSY", ical_validator.freebusy_periods(fb))
   let x_lines = render_x_properties(ical_validator.freebusy_x_properties(fb))
 
   list.flatten([
@@ -400,7 +402,7 @@ fn render_alarm(alarm: ical_validator.Alarm) -> List(String) {
   let duration_lines =
     render_opt(forms, "DURATION", ical_validator.alarm_duration(alarm))
   let attendee_lines =
-    list.map(ical_validator.alarm_attendees(alarm), fn(a) { "ATTENDEE:" <> a })
+    render_lines(forms, "ATTENDEE", ical_validator.alarm_attendees(alarm))
   let x_lines = render_x_properties(ical_validator.alarm_x_properties(alarm))
 
   list.flatten([
@@ -556,10 +558,10 @@ fn render_dt_list(
 }
 
 fn pair_forms(
-  values: List(schedule_ast.DateTime),
+  values: List(a),
   forms: List(ical_validator.PropertyForm),
-  acc: List(#(ical_validator.PropertyForm, schedule_ast.DateTime)),
-) -> List(#(ical_validator.PropertyForm, schedule_ast.DateTime)) {
+  acc: List(#(ical_validator.PropertyForm, a)),
+) -> List(#(ical_validator.PropertyForm, a)) {
   case values, forms {
     [], _ -> list.reverse(acc)
     [value, ..rest], [form, ..forms] ->
@@ -570,9 +572,9 @@ fn pair_forms(
 }
 
 fn group_by_form(
-  pairs: List(#(ical_validator.PropertyForm, schedule_ast.DateTime)),
-  acc: List(#(ical_validator.PropertyForm, List(schedule_ast.DateTime))),
-) -> List(#(ical_validator.PropertyForm, List(schedule_ast.DateTime))) {
+  pairs: List(#(ical_validator.PropertyForm, a)),
+  acc: List(#(ical_validator.PropertyForm, List(a))),
+) -> List(#(ical_validator.PropertyForm, List(a))) {
   case pairs, acc {
     [], _ ->
       list.reverse(
@@ -623,17 +625,26 @@ fn parameter_is(p: Parameter, name: String) -> Bool {
   string.uppercase(p.name) == name
 }
 
-fn render_categories(categories: List(String)) -> List(String) {
-  case categories {
-    [] -> []
-    _ -> {
-      let joined =
-        categories
-        |> list.map(escape_text)
-        |> string.join(",")
-      ["CATEGORIES:" <> joined]
-    }
-  }
+fn render_lines(
+  forms: Forms,
+  name: String,
+  values: List(String),
+) -> List(String) {
+  pair_forms(values, forms_for(forms, name), [])
+  |> list.map(fn(pair) {
+    name <> render_parameters(pair.0.parameters) <> ":" <> pair.1
+  })
+}
+
+fn render_categories(forms: Forms, categories: List(String)) -> List(String) {
+  pair_forms(categories, forms_for(forms, "CATEGORIES"), [])
+  |> group_by_form([])
+  |> list.map(fn(group) {
+    "CATEGORIES"
+    <> render_parameters(group.0.parameters)
+    <> ":"
+    <> string.join(list.map(group.1, escape_text), ",")
+  })
 }
 
 // ============================================================
