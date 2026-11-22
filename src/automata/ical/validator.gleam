@@ -1518,7 +1518,17 @@ fn timezone_children_forms(
     children
     |> list.filter(fn(child) { child.kind == kind })
     |> list.index_map(fn(child, index) {
-      #(#(kind, index), forms_of(child.properties))
+      let forms = forms_of(child.properties)
+      // A built timezone rule defaults to local time, unlike other
+      // components. Retain even the otherwise-default parsed UTC form.
+      let forms = case find_prop(child.properties, "DTSTART") {
+        Some(prop) ->
+          dict.insert(forms, "DTSTART", [
+            value_form("DTSTART", prop.parameters, prop.raw_value),
+          ])
+        None -> forms
+      }
+      #(#(kind, index), forms)
     })
   })
   |> list.filter(fn(pair) { dict.size(pair.1) > 0 })

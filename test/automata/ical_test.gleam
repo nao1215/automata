@@ -1079,3 +1079,21 @@ pub fn parameter_lists_keep_quoted_value_boundaries_test() {
     encoded_lines(string.join(lines, "\r\n")) |> should.equal(lines)
   })
 }
+
+pub fn parsed_timezone_rule_keeps_an_explicit_utc_marker_test() {
+  // Even when accepting a non-local DTSTART in a timezone rule, encoding
+  // must not silently reinterpret the retained value as local time.
+  let input =
+    string.join(
+      [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//x//EN", "BEGIN:VTIMEZONE",
+        "TZID:Example", "BEGIN:STANDARD", "DTSTART:20260101T020000Z",
+        "TZOFFSETFROM:+0100", "TZOFFSETTO:+0100", "END:STANDARD",
+        "END:VTIMEZONE", "END:VCALENDAR", "",
+      ],
+      "\r\n",
+    )
+  encoded_lines(input)
+  |> starting_with("DTSTART")
+  |> should.equal(["DTSTART:20260101T020000Z"])
+}
