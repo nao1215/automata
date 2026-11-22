@@ -170,9 +170,10 @@ pub fn next_occurrence(
           // day, so a non-aligned `start` instant must not skip the whole day —
           // valid later same-day occurrences exist. Day-level alignment gating
           // only applies to day-or-coarser frequencies.
-          let day_alignment_ok = case is_sub_daily(plan.frequency) {
-            True -> True
-            False -> aligned(plan, start)
+          let unit = sub_daily_unit(plan.frequency)
+          let day_alignment_ok = case unit {
+            Some(_) -> True
+            None -> aligned(plan, start)
           }
           case day_matches(plan, start.date) && day_alignment_ok {
             True ->
@@ -188,15 +189,25 @@ pub fn next_occurrence(
                       // T00:15, not T00:01). Re-check `aligned` and jump to
                       // the start of the next interval step on a miss, so a
                       // large INTERVAL costs one step instead of one per
-                      // second.
-                      case aligned(plan, found) {
-                        True -> Some(found)
-                        False ->
-                          next_occurrence(
-                            plan,
-                            search: next_step_start(plan, found),
-                            guard: guard + 1,
-                          )
+                      // second. Coarser frequencies align by date, which was
+                      // checked for `start` and holds for `found` on the
+                      // same day.
+                      case unit {
+                        None -> Some(found)
+                        Some(unit_seconds) ->
+                          case aligned(plan, found) {
+                            True -> Some(found)
+                            False ->
+                              next_occurrence(
+                                plan,
+                                search: next_step_start(
+                                  plan,
+                                  unit_seconds,
+                                  found,
+                                ),
+                                guard: guard + 1,
+                              )
+                          }
                       }
                   }
                 None ->
@@ -219,31 +230,29 @@ pub fn next_occurrence(
   }
 }
 
-fn is_sub_daily(frequency: validator.Frequency) -> Bool {
+// Seconds per FREQ unit for the sub-daily frequencies, whose interval
+// steps fall inside a day; None for DAILY and coarser.
+fn sub_daily_unit(frequency: validator.Frequency) -> Option(Int) {
   case frequency {
-    validator.Secondly | validator.Minutely | validator.Hourly -> True
+    validator.Secondly -> Some(1)
+    validator.Minutely -> Some(60)
+    validator.Hourly -> Some(3600)
     validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly ->
-      False
+      None
   }
 }
 
-// Start of the first sub-daily interval step after `at`. Only called
-// for sub-daily frequencies, where `at` is at or after the anchor.
-fn next_step_start(plan: RRulePlan, at: DateTime) -> DateTime {
-  let step = plan.interval * sub_daily_unit_seconds(plan.frequency)
+// Start of the first interval step after `at`, for a sub-daily unit of
+// `unit_seconds`. `at` is at or after the anchor.
+fn next_step_start(
+  plan: RRulePlan,
+  unit_seconds: Int,
+  at: DateTime,
+) -> DateTime {
+  let step = plan.interval * unit_seconds
   let elapsed = calendar.seconds_between(plan.anchor, at)
   let steps = elapsed / step + 1
   calendar.add_seconds(plan.anchor, steps * step)
-}
-
-fn sub_daily_unit_seconds(frequency: validator.Frequency) -> Int {
-  case frequency {
-    validator.Secondly -> 1
-    validator.Minutely -> 60
-    validator.Hourly -> 3600
-    validator.Daily | validator.Weekly | validator.Monthly | validator.Yearly ->
-      86_400
-  }
 }
 
 fn month_day_matches(values: Option(List(Int)), date: Date) -> Bool {
