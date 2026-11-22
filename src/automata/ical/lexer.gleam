@@ -2,6 +2,7 @@ import automata/ical/ast.{
   type Parameter, type RawProperty, Parameter, RawProperty,
 }
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// 物理行を unfold した後の論理行。
@@ -132,12 +133,13 @@ fn parse_parameters(
     [first, ..rest] ->
       case parse_parameter(first, ln) {
         Error(err) -> Error(err)
-        Ok(param) -> parse_parameters(rest, ln, [param, ..acc])
+        Ok(params) ->
+          parse_parameters(rest, ln, list.append(list.reverse(params), acc))
       }
   }
 }
 
-fn parse_parameter(raw: String, ln: Int) -> Result(Parameter, LexError) {
+fn parse_parameter(raw: String, ln: Int) -> Result(List(Parameter), LexError) {
   let graphemes = string.to_graphemes(raw)
   case split_at_unquoted(graphemes, "=") {
     Error(_) -> Error(MalformedParameter(line: ln, raw: raw))
@@ -145,11 +147,13 @@ fn parse_parameter(raw: String, ln: Int) -> Result(Parameter, LexError) {
       case name, value {
         "", _ -> Error(MalformedParameter(line: ln, raw: raw))
         _, _ ->
-          case strip_dquotes(value, raw, ln) {
-            Error(err) -> Error(err)
-            Ok(stripped) ->
-              Ok(Parameter(name: string.uppercase(name), value: stripped))
-          }
+          split_all_unquoted(string.to_graphemes(value), ",")
+          |> list.try_map(fn(item) {
+            strip_dquotes(item, raw, ln)
+            |> result.map(fn(stripped) {
+              Parameter(name: string.uppercase(name), value: stripped)
+            })
+          })
       }
   }
 }

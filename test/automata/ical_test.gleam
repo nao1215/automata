@@ -1062,3 +1062,20 @@ pub fn replacing_extension_property_clears_parameters_and_escapes_text_test() {
     |> encode_events
   starting_with(lines, "X-NAME") |> should.equal(["X-NAME:New\\, text"])
 }
+
+pub fn parameter_lists_keep_quoted_value_boundaries_test() {
+  // The first line has three values; the second has one comma-containing
+  // value. Quoting the entire first list would change its meaning.
+  let props = [
+    "X-LIST;X-OPTIONS=one,\"two,three\",four:value",
+    "X-SINGLE;X-OPTIONS=\"one,two\":value",
+    "ATTENDEE;MEMBER=\"mailto:a@x\",\"mailto:b@x\":mailto:c@x",
+  ]
+  ["VEVENT", "X-CUSTOM"]
+  |> list.each(fn(kind) {
+    let lines = encoded_lines(wrap_component(kind, props))
+    props
+    |> list.each(fn(prop) { list.contains(lines, prop) |> should.be_true })
+    encoded_lines(string.join(lines, "\r\n")) |> should.equal(lines)
+  })
+}

@@ -515,22 +515,7 @@ fn render_raw_component(comp: RawComponent) -> List(String) {
 fn render_raw_property(prop: RawProperty) -> String {
   let ast.RawProperty(name: name, parameters: params, raw_value: value, ..) =
     prop
-  let param_part = case params {
-    [] -> ""
-    _ ->
-      ";"
-      <> {
-        params
-        |> list.map(render_parameter)
-        |> string.join(";")
-      }
-  }
-  name <> param_part <> ":" <> value
-}
-
-fn render_parameter(p: Parameter) -> String {
-  let ast.Parameter(name: name, value: value) = p
-  name <> "=" <> quote_param_if_needed(value)
+  name <> render_parameters(params) <> ":" <> value
 }
 
 fn quote_param_if_needed(value: String) -> String {
@@ -592,7 +577,20 @@ fn raw_text_property(forms: Forms, name: String, value: String) -> String {
 
 fn render_parameters(params: List(Parameter)) -> String {
   params
-  |> list.map(fn(p) { ";" <> render_parameter(p) })
+  |> list.chunk(fn(p) { p.name })
+  |> list.map(fn(group) {
+    case group {
+      [] -> ""
+      [first, ..] ->
+        ";"
+        <> first.name
+        <> "="
+        <> string.join(
+          list.map(group, fn(p) { quote_param_if_needed(p.value) }),
+          ",",
+        )
+    }
+  })
   |> string.concat
 }
 

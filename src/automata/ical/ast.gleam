@@ -6,6 +6,7 @@
 
 /// 一つの content line のパラメータ (NAME=VALUE)。
 /// NAME は大文字正規化済み。VALUE は囲み quote を剥がした素の値。
+/// 複数値のパラメータは同じ NAME を持つ連続した要素で表す。
 pub type Parameter {
   Parameter(name: String, value: String)
 }
