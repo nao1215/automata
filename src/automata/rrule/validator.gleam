@@ -138,6 +138,7 @@ type PartialRule {
     by_month_day: Option(List(Int)),
     by_hour: Option(List(Int)),
     by_minute: Option(List(Int)),
+    week_start_seen: Bool,
   )
 }
 
@@ -192,6 +193,7 @@ pub fn from_parts(
     by_month_day:,
     by_hour:,
     by_minute:,
+    week_start_seen: False,
   ))
 }
 
@@ -319,6 +321,7 @@ fn empty_partial_rule() -> PartialRule {
     by_month_day: None,
     by_hour: None,
     by_minute: None,
+    week_start_seen: False,
   )
 }
 
@@ -420,10 +423,12 @@ fn apply_part(
     // Weeks always start on Monday here, which is the RFC 5545 default,
     // so WKST=MO changes nothing and is accepted. Other week starts are
     // not implemented.
+    // A second WKST is rejected like any repeated part; RulePart has no
+    // WKST variant, so it is reported as UnsupportedPart.
     "WKST" ->
-      case string.uppercase(value) {
-        "MO" -> Ok(partial)
-        _ -> Error(UnsupportedPart(name: "WKST"))
+      case partial.week_start_seen, string.uppercase(value) {
+        False, "MO" -> Ok(PartialRule(..partial, week_start_seen: True))
+        _, _ -> Error(UnsupportedPart(name: "WKST"))
       }
     "BYEASTER" -> Error(UnsupportedPart(name: "BYEASTER"))
     _ -> Error(UnknownPart(name: name))

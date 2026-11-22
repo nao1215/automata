@@ -1073,3 +1073,11 @@ pub fn validate_rejects_non_default_wkst_test() {
   rrule.validate(raw)
   |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
 }
+
+pub fn validate_rejects_repeated_wkst_test() {
+  // Each rule part may appear once. RulePart has no WKST variant, so a
+  // second WKST is reported like an unsupported WKST value.
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;WKST=MO;WKST=MO")
+  rrule.validate(raw)
+  |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
+}
