@@ -46,7 +46,7 @@ pub fn diff(
     case set.contains(suppressed_old_paths, key) {
       True -> Error(Nil)
       False ->
-        build_event_for(key, prev, curr, renames, fold_renames)
+        build_event_for(key, prev, curr, renames)
         |> apply_op_mask(watch)
     }
   })
@@ -121,20 +121,18 @@ fn build_event_for(
   prev: Snapshot,
   curr: Snapshot,
   renames: Dict(String, NormalizedPath),
-  fold_renames: Bool,
 ) -> Result(WatchEvent, Nil) {
   let prev_entry = lookup_by_key(prev, key)
   let curr_entry = lookup_by_key(curr, key)
-  let base_ops = case fold_renames, prev_entry, curr_entry {
-    // Without rename folding, a path whose file_id changed holds another
-    // file now (for example after `mv` over it): the old file is removed
-    // and the new one created.
-    False, Some(o), Some(n) ->
+  let base_ops = case prev_entry, curr_entry {
+    // A changed identity is a replacement even when metadata is unchanged.
+    // apply_rename folds this pair only if this path is a rename destination.
+    Some(o), Some(n) ->
       case replaced(o, n) {
         True -> set.insert(ops_for_creation(n), Remove)
         False -> compare_entry(old: prev_entry, new: curr_entry)
       }
-    _, _, _ -> compare_entry(old: prev_entry, new: curr_entry)
+    _, _ -> compare_entry(old: prev_entry, new: curr_entry)
   }
   let #(final_ops, renamed_from) =
     apply_rename(key, base_ops, prev, curr_entry, renames)

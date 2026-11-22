@@ -425,6 +425,22 @@ fn op_order(a: ast.Op, b: ast.Op) -> order.Order {
   int.compare(op_rank(a), op_rank(b))
 }
 
+pub fn rename_with_recreated_source_reports_replacement_test() {
+  let prev = snap([file("/a", 0, 1, 0o644, None, Some("inode-1"))])
+  let curr =
+    snap([
+      file("/a", 0, 1, 0o644, None, Some("inode-2")),
+      file("/b", 0, 1, 0o644, None, Some("inode-1")),
+    ])
+  let events = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
+  paths_of(events) |> should.equal(["/a", "/b"])
+  let assert [a_ev, b_ev] = events
+  ops_of(a_ev) |> list.sort(op_order) |> should.equal([Create, Remove])
+  event.event_renamed_from(a_ev) |> should.equal(None)
+  ops_of(b_ev) |> should.equal([Rename])
+  event.event_renamed_from(b_ev) |> should.equal(Some(p("/a")))
+}
+
 fn op_rank(o: ast.Op) -> Int {
   case o {
     Create -> 0
