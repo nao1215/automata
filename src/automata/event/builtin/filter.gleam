@@ -10,7 +10,7 @@ pub fn is_scheduled() -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Scheduled(_, _, _) -> True
-      _ -> False
+      body.FileSystem(..) | body.Manual(..) | body.Custom(..) -> False
     }
   })
 }
@@ -20,7 +20,7 @@ pub fn by_schedule_kind(kind kind: ScheduleKind) -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Scheduled(_, _, k) -> k == kind
-      _ -> False
+      body.FileSystem(..) | body.Manual(..) | body.Custom(..) -> False
     }
   })
 }
@@ -30,7 +30,7 @@ pub fn by_plan_id(id id: String) -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Scheduled(plan, _, _) -> plan == id
-      _ -> False
+      body.FileSystem(..) | body.Manual(..) | body.Custom(..) -> False
     }
   })
 }
@@ -40,7 +40,7 @@ pub fn is_file_event() -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.FileSystem(_) -> True
-      _ -> False
+      body.Scheduled(..) | body.Manual(..) | body.Custom(..) -> False
     }
   })
 }
@@ -52,7 +52,7 @@ pub fn is_file_with_op(op op: Op) -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.FileSystem(watch_event) -> fs_event.event_has(watch_event, op)
-      _ -> False
+      body.Scheduled(..) | body.Manual(..) | body.Custom(..) -> False
     }
   })
 }
@@ -93,7 +93,7 @@ pub fn is_manual() -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Manual(_, _) -> True
-      _ -> False
+      body.Scheduled(..) | body.FileSystem(..) | body.Custom(..) -> False
     }
   })
 }
@@ -102,7 +102,7 @@ pub fn is_custom() -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Custom(_, _) -> True
-      _ -> False
+      body.Scheduled(..) | body.FileSystem(..) | body.Manual(..) -> False
     }
   })
 }
@@ -111,7 +111,7 @@ pub fn by_custom_kind(kind kind: String) -> Filter(EventBody) {
   filter.on_body(fn(b) {
     case b {
       body.Custom(name, _) -> name == kind
-      _ -> False
+      body.Scheduled(..) | body.FileSystem(..) | body.Manual(..) -> False
     }
   })
 }
@@ -120,6 +120,6 @@ fn file_path(b: EventBody) -> Result(String, Nil) {
   case b {
     body.FileSystem(watch_event) ->
       Ok(fs_path.path_to_string(fs_event.event_path(watch_event)))
-    _ -> Error(Nil)
+    body.Scheduled(..) | body.Manual(..) | body.Custom(..) -> Error(Nil)
   }
 }

@@ -84,7 +84,7 @@ fn ops_for_creation(e: Entry) -> Set(Op) {
         True -> op.ops_from_list([Create, Write])
         False -> op.single_op(Create)
       }
-    _ -> op.single_op(Create)
+    ast.Directory | ast.Symlink -> op.single_op(Create)
   }
 }
 

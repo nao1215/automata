@@ -6,7 +6,7 @@ import automata/fsevent/event as fs_event
 pub fn is_scheduled(event event: Event(EventBody)) -> Bool {
   case event.body {
     body.Scheduled(_, _, _) -> True
-    _ -> False
+    body.FileSystem(..) | body.Manual(..) | body.Custom(..) -> False
   }
 }
 
@@ -16,7 +16,7 @@ pub fn is_schedule_kind(
 ) -> Bool {
   case event.body {
     body.Scheduled(_, _, k) -> k == kind
-    _ -> False
+    body.FileSystem(..) | body.Manual(..) | body.Custom(..) -> False
   }
 }
 
@@ -25,7 +25,7 @@ pub fn is_schedule_kind(
 pub fn is_file_event(event event: Event(EventBody)) -> Bool {
   case event.body {
     body.FileSystem(_) -> True
-    _ -> False
+    body.Scheduled(..) | body.Manual(..) | body.Custom(..) -> False
   }
 }
 
@@ -36,21 +36,21 @@ pub fn is_file_event(event event: Event(EventBody)) -> Bool {
 pub fn is_file_with_op(event event: Event(EventBody), op op: Op) -> Bool {
   case event.body {
     body.FileSystem(watch_event) -> fs_event.event_has(watch_event, op)
-    _ -> False
+    body.Scheduled(..) | body.Manual(..) | body.Custom(..) -> False
   }
 }
 
 pub fn is_manual(event event: Event(EventBody)) -> Bool {
   case event.body {
     body.Manual(_, _) -> True
-    _ -> False
+    body.Scheduled(..) | body.FileSystem(..) | body.Custom(..) -> False
   }
 }
 
 pub fn is_custom(event event: Event(EventBody)) -> Bool {
   case event.body {
     body.Custom(_, _) -> True
-    _ -> False
+    body.Scheduled(..) | body.FileSystem(..) | body.Manual(..) -> False
   }
 }
 
@@ -60,6 +60,6 @@ pub fn is_custom_kind(
 ) -> Bool {
   case event.body {
     body.Custom(name, _) -> name == kind
-    _ -> False
+    body.Scheduled(..) | body.FileSystem(..) | body.Manual(..) -> False
   }
 }
