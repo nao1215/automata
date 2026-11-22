@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-22
+
 ### Changed
 
 - Cron steps may be as large as the field's range, so `*/60` for minutes, `*/24` for hours, `*/31`, `*/12` and `*/8` are accepted, as in croniter. Larger steps are still rejected.
