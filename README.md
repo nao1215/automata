@@ -204,10 +204,7 @@ pub fn main() {
 there is no second parse:
 
 ```gleam
-case ical.event_rrule(event) {
-  option.Some(raw) -> rrule.validate(raw: raw)
-  option.None -> Error(Nil)
-}
+option.map(ical.event_rrule(event), rrule.validate)
 ```
 
 Parsing the output of `ical.encode` gives back the same properties.
