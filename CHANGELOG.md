@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Cron steps may be as large as the field's range, so `*/60` for minutes, `*/24` for hours, `*/31`, `*/12` and `*/8` are accepted, as in croniter. Larger steps are still rejected.
+- RRULE accepts `WKST=MO`, the default week start, and drops it from `to_string`. Other `WKST` values are still rejected.
+- Retry jitter covers the whole range for delays above 2^32 ms, no longer favours small values for small seeds, and `EqualJitter` can reach the base delay. The same seed gives the same delays on both targets, but they differ from earlier versions.
+- `fsevent` reports a move as a `Remove` of the old path and a `Create` of the new one when the watch does not include `Rename`, and reports a rename over an existing file, or two swapped files, as `Rename`.
+- `ical.encode` writes properties in the form they were parsed in: floating date-times stay floating, `VALUE=DATE` stays a date, and `TZID`, `CN`, `LANGUAGE` and `TRIGGER;RELATED` parameters are kept. Values built or replaced with the builders and setters are still written in UTC without parameters. When a single-valued property such as `DTSTART` appears twice, the first one is used.
+
+### Fixed
+
+- `rrule.next_after` and `rrule.matches` no longer count every occurrence since the start when the rule has no `COUNT`, and stop counting at `COUNT`. A secondly rule a week after its start took 18 seconds.
+- Secondly, minutely and hourly rules with a large `INTERVAL` jump to the next step instead of running out of search steps and returning no occurrence. `FREQ=MINUTELY;INTERVAL=4500000` now finds 2034-07-23.
+- Weekdays and day counts are correct for years before 1, and `to_string` writes such years as `-0001`.
+- The cron and RRULE builders report out-of-range values with the same errors as parsing, for example `OutOfRange(Minute, 0, 59, -1)` for `cron.at(-1)`.
+- `ical` adds components in constant time; 20000 events took over 3 seconds on JavaScript.
+- The README example that reads an RRULE from an iCalendar event compiles, and the cron `next_after` documentation describes its search limit accurately.
+
 ## [0.12.0] - 2026-11-19
 
 ### Added
