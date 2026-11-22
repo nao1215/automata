@@ -79,16 +79,9 @@ fn aligned(plan: RRulePlan, at: DateTime) -> Bool {
     validator.Secondly ->
       modulo(calendar.seconds_between(plan.anchor, at), plan.interval) == 0
     validator.Minutely ->
-      modulo(
-        quotient(calendar.seconds_between(plan.anchor, at), 60),
-        plan.interval,
-      )
-      == 0
+      modulo(calendar.seconds_between(plan.anchor, at) / 60, plan.interval) == 0
     validator.Hourly ->
-      modulo(
-        quotient(calendar.seconds_between(plan.anchor, at), 3600),
-        plan.interval,
-      )
+      modulo(calendar.seconds_between(plan.anchor, at) / 3600, plan.interval)
       == 0
     validator.Daily -> modulo(days_between(plan.anchor, at), plan.interval) == 0
     validator.Weekly ->
@@ -479,11 +472,11 @@ fn list_first(values: List(Int)) -> Int {
 }
 
 fn days_between(from: DateTime, to: DateTime) -> Int {
-  days_since_epoch(to.date) - days_since_epoch(from.date)
+  calendar.days_since_epoch(to.date) - calendar.days_since_epoch(from.date)
 }
 
 fn weeks_between(from: DateTime, to: DateTime) -> Int {
-  quotient(days_between(start_of_week(from), start_of_week(to)), 7)
+  days_between(start_of_week(from), start_of_week(to)) / 7
 }
 
 fn months_between(from: DateTime, to: DateTime) -> Int {
@@ -510,46 +503,8 @@ fn weekday_offset(day: Weekday) -> Int {
   }
 }
 
-fn days_since_epoch(date: Date) -> Int {
-  days_before_year(date.year)
-  + days_before_month(date.year, date.month)
-  + date.day
-}
-
-fn days_before_year(year: Int) -> Int {
-  let previous = year - 1
-  { previous * 365 }
-  + quotient(previous, 4)
-  - quotient(previous, 100)
-  + quotient(previous, 400)
-}
-
-fn days_before_month(year: Int, month: Int) -> Int {
-  days_before_month_loop(year, month, 1, 0)
-}
-
-fn days_before_month_loop(year: Int, target: Int, month: Int, acc: Int) -> Int {
-  case month >= target {
-    True -> acc
-    False ->
-      days_before_month_loop(
-        year,
-        target,
-        month + 1,
-        acc + calendar.days_in_month(year, month),
-      )
-  }
-}
-
 fn modulo(dividend: Int, divisor: Int) -> Int {
   case int.modulo(dividend, by: divisor) {
-    Ok(result) -> result
-    Error(_) -> 0
-  }
-}
-
-fn quotient(dividend: Int, divisor: Int) -> Int {
-  case int.divide(dividend, by: divisor) {
     Ok(result) -> result
     Error(_) -> 0
   }

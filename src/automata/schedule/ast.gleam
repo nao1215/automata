@@ -11,6 +11,7 @@
 
 import gleam/int
 import gleam/result
+import gleam/string
 
 /// Gregorian weekday names shared by cron and RRULE APIs.
 pub type Weekday {
@@ -215,17 +216,11 @@ fn pad2(value: Int) -> String {
   }
 }
 
+// ISO 8601 expanded years: at least four digits, with a leading minus
+// sign before year 0.
 fn pad4(value: Int) -> String {
-  case value < 10 {
-    True -> "000" <> int.to_string(value)
-    False ->
-      case value < 100 {
-        True -> "00" <> int.to_string(value)
-        False ->
-          case value < 1000 {
-            True -> "0" <> int.to_string(value)
-            False -> int.to_string(value)
-          }
-      }
+  case value < 0 {
+    True -> "-" <> pad4(0 - value)
+    False -> string.pad_start(int.to_string(value), to: 4, with: "0")
   }
 }

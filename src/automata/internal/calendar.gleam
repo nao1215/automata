@@ -575,8 +575,10 @@ fn month_offset(month: Int) -> Int {
   }
 }
 
+// Floor division, so that years before 1 (astronomical numbering: 0 is
+// 1 BC) count leap days and weekdays the same way as later years.
 fn quotient(dividend: Int, divisor: Int) -> Int {
-  case int.divide(dividend, by: divisor) {
+  case int.floor_divide(dividend, by: divisor) {
     Ok(result) -> result
     Error(_) -> 0
   }

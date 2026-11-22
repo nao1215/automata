@@ -262,3 +262,57 @@ pub fn from_every_zero_seconds_propagates_through_compile_test() {
   compile(EveryS(seconds: 0, anchor: anchor))
   |> should.equal(Error(schedule.EveryIntervalMustBePositive(actual: 0)))
 }
+
+// --- years at or before 0 (proleptic Gregorian, astronomical numbering) ---
+// 0001-01-01 is a Monday and year 0 is a leap year, so 0000-01-01 is a
+// Saturday and -0001-12-31 is a Friday.
+
+fn iso(value: schedule_ast.ValidDateTime) -> String {
+  schedule_ast.to_string(schedule_ast.valid_datetime_value(value))
+}
+
+pub fn to_string_pads_negative_year_test() {
+  schedule_ast.to_string(schedule_ast.datetime(-1, 12, 31, 0, 0, 0))
+  |> should.equal("-0001-12-31T00:00:00")
+  schedule_ast.to_string(schedule_ast.datetime(-12_345, 1, 2, 3, 4, 5))
+  |> should.equal("-12345-01-02T03:04:05")
+  schedule_ast.to_string(schedule_ast.datetime(0, 1, 1, 0, 0, 0))
+  |> should.equal("0000-01-01T00:00:00")
+}
+
+pub fn cron_weekday_before_year_one_test() {
+  let saturday = parse_and_validate_cron("0 0 * * 6")
+  let assert Some(next) =
+    cron.next_after(saturday, after: vdt(-1, 12, 31, 0, 0, 0))
+  iso(next) |> should.equal("0000-01-01T00:00:00")
+  cron.matches(
+    parse_and_validate_cron("0 0 * * 5"),
+    at: vdt(-1, 12, 31, 0, 0, 0),
+  )
+  |> should.equal(True)
+}
+
+pub fn cron_month_rollover_before_year_one_test() {
+  let spec = parse_and_validate_cron("0 0 15 * *")
+  let assert Some(first) =
+    cron.next_after(spec, after: vdt(-1, 11, 20, 0, 0, 0))
+  let assert Some(second) = cron.next_after(spec, after: first)
+  iso(first) |> should.equal("-0001-12-15T00:00:00")
+  iso(second) |> should.equal("0000-01-15T00:00:00")
+}
+
+pub fn rrule_daily_interval_across_leap_year_zero_test() {
+  let spec = parse_and_validate_rrule("FREQ=DAILY;INTERVAL=2")
+  let anchor = vdt(0, 12, 30, 0, 0, 0)
+  let assert Ok(Some(first)) =
+    rrule.next_after(spec, anchor: anchor, after: anchor)
+  iso(first) |> should.equal("0001-01-01T00:00:00")
+}
+
+pub fn rrule_weekly_before_year_one_test() {
+  let spec = parse_and_validate_rrule("FREQ=WEEKLY")
+  let anchor = vdt(-1, 12, 31, 9, 0, 0)
+  let assert Ok(Some(first)) =
+    rrule.next_after(spec, anchor: anchor, after: anchor)
+  iso(first) |> should.equal("0000-01-07T09:00:00")
+}
