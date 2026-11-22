@@ -749,3 +749,100 @@ pub fn duplicate_single_valued_property_keeps_first_test() {
   |> list.filter(fn(line) { string.starts_with(line, "DTSTART") })
   |> should.equal(["DTSTART:20260511T130000"])
 }
+
+fn encode_events(events: List(ical.Event)) -> List(String) {
+  list.fold(
+    events,
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN"),
+    ical.add_event,
+  )
+  |> ical.encode
+  |> string.split("\r\n")
+}
+
+fn starting_with(lines: List(String), prefix: String) -> List(String) {
+  list.filter(lines, string.starts_with(_, prefix))
+}
+
+pub fn added_rdate_is_written_as_utc_test() {
+  // The parsed RDATE line is a DATE; a value added later is a UTC
+  // DATE-TIME and must not take the parsed line's form.
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event([
+        "DTSTART;VALUE=DATE:20260101", "RDATE;VALUE=DATE:20260105",
+        "EXDATE;TZID=Asia/Tokyo:20260108T090000",
+      ]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.add_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
+    |> ical.add_exdate(schedule_ast.datetime(2026, 1, 9, 9, 0, 0))
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "RDATE")
+  |> should.equal(["RDATE;VALUE=DATE:20260105", "RDATE:20260107T090000Z"])
+  starting_with(lines, "EXDATE")
+  |> should.equal([
+    "EXDATE;TZID=Asia/Tokyo:20260108T090000", "EXDATE:20260109T090000Z",
+  ])
+}
+
+pub fn added_todo_rdate_is_written_as_utc_test() {
+  let input =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VTODO\r\nUID:t@x\r\nDTSTAMP:20260101T000000Z\r\nRDATE;VALUE=DATE:20260105\r\nEXDATE;VALUE=DATE:20260106\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+  let assert Ok(cal) = ical.parse(input)
+  let assert [t] = ical.todos(cal)
+  let updated =
+    t
+    |> ical.add_todo_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
+    |> ical.add_todo_exdate(schedule_ast.datetime(2026, 1, 8, 9, 0, 0))
+  let lines =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_todo(updated)
+    |> ical.encode
+    |> string.split("\r\n")
+  starting_with(lines, "RDATE")
+  |> should.equal(["RDATE;VALUE=DATE:20260105", "RDATE:20260107T090000Z"])
+  starting_with(lines, "EXDATE")
+  |> should.equal(["EXDATE;VALUE=DATE:20260106", "EXDATE:20260108T090000Z"])
+}
+
+pub fn date_list_lines_keep_their_own_forms_test() {
+  let lines =
+    encoded_lines(
+      wrap_event([
+        "DTSTART:20260101T090000Z", "RDATE;VALUE=DATE:20260105,20260106",
+        "RDATE;TZID=Asia/Tokyo:20260107T090000", "RDATE:20260108T090000Z",
+      ]),
+    )
+  starting_with(lines, "RDATE")
+  |> should.equal([
+    "RDATE;VALUE=DATE:20260105,20260106",
+    "RDATE;TZID=Asia/Tokyo:20260107T090000", "RDATE:20260108T090000Z",
+  ])
+}
+
+pub fn date_without_value_parameter_stays_a_date_test() {
+  // An 8-digit value is a DATE even without VALUE=DATE.
+  let lines = encoded_lines(wrap_event(["DTSTART:20250101"]))
+  starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20250101"])
+}
+
+pub fn moving_date_dtstart_also_resets_dtend_test() {
+  // DTSTART and DTEND must have the same value type, so replacing a DATE
+  // DTSTART with a DATE-TIME also writes DTEND as a DATE-TIME.
+  let assert Ok(cal) =
+    ical.parse(
+      wrap_event(["DTSTART;VALUE=DATE:20260101", "DTEND;VALUE=DATE:20260102"]),
+    )
+  let assert [event] = ical.events(cal)
+  let lines =
+    event
+    |> ical.with_dtstart(schedule_ast.datetime(2026, 1, 1, 9, 0, 0))
+    |> list.wrap
+    |> encode_events
+  starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20260101T090000Z"])
+  starting_with(lines, "DTEND") |> should.equal(["DTEND:20260102T000000Z"])
+}

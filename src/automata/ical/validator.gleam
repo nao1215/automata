@@ -75,7 +75,7 @@ pub opaque type Event {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
-    forms: Dict(String, PropertyForm),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -97,7 +97,7 @@ pub opaque type Todo {
     exdates: List(schedule_ast.DateTime),
     alarms: List(Alarm),
     x_properties: Dict(String, String),
-    forms: Dict(String, PropertyForm),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -111,7 +111,7 @@ pub opaque type Journal {
     status: Option(String),
     categories: List(String),
     x_properties: Dict(String, String),
-    forms: Dict(String, PropertyForm),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -125,7 +125,7 @@ pub opaque type FreeBusy {
     attendees: List(String),
     freebusy_periods: List(String),
     x_properties: Dict(String, String),
-    forms: Dict(String, PropertyForm),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
@@ -160,20 +160,24 @@ pub opaque type Alarm {
     duration: Option(String),
     attendees: List(String),
     x_properties: Dict(String, String),
-    forms: Dict(String, PropertyForm),
+    forms: Dict(String, List(PropertyForm)),
   )
 }
 
 /// How a property was written in parsed text: its parameters (such as
-/// `VALUE=DATE`, `TZID` or `CN`) and whether a DATE-TIME value ended in
-/// `Z`. The emitter uses it to write the property back in the same
-/// form. Only parsed properties that carry parameters, and date
-/// properties written without `Z`, have one; built values are written
-/// as UTC DATE-TIME without parameters.
+/// `VALUE=DATE`, `TZID` or `CN`), whether a date value ended in `Z`,
+/// and whether it had no time part. The emitter uses it to write the
+/// property back in the same form. A component keeps one form for a
+/// single-valued property and one per value, in order, for RDATE and
+/// EXDATE. Only parsed properties that carry parameters, and date
+/// properties written without `Z`, have forms; built values are
+/// written as UTC DATE-TIME without parameters.
 @internal
 pub type PropertyForm {
-  PropertyForm(parameters: List(Parameter), utc: Bool)
+  PropertyForm(parameters: List(Parameter), utc: Bool, date_only: Bool)
 }
+
+const utc_form = PropertyForm(parameters: [], utc: True, date_only: False)
 
 pub type UnknownComponent {
   UnknownComponent(
@@ -1059,19 +1063,85 @@ fn build_alarm_body(
 
 const date_properties = ["DTSTART", "DTEND", "DUE", "RDATE", "EXDATE"]
 
-// The form of the first occurrence of each property, which is the one
-// the model keeps.
-fn forms_of(props: List(RawProperty)) -> Dict(String, PropertyForm) {
+const date_list_properties = ["RDATE", "EXDATE"]
+
+// The form of the first occurrence of each single-valued property,
+// which is the one the model keeps, and the form of every value of
+// RDATE and EXDATE in document order.
+fn forms_of(props: List(RawProperty)) -> Dict(String, List(PropertyForm)) {
   list.fold(props, dict.new(), fn(acc, prop) {
     let RawProperty(name: name, parameters: params, raw_value: raw, ..) = prop
-    let utc = string.ends_with(raw, "Z")
-    let informative =
-      params != [] || { !utc && list.contains(date_properties, name) }
-    case informative && !dict.has_key(acc, name) {
-      True -> dict.insert(acc, name, PropertyForm(parameters: params, utc: utc))
-      False -> acc
+    case list.contains(date_list_properties, name) {
+      True -> {
+        let line =
+          list.map(string.split(raw, ","), fn(value) {
+            value_form(params, value)
+          })
+        case dict.get(acc, name) {
+          Ok(previous) -> dict.insert(acc, name, list.append(previous, line))
+          Error(_) -> dict.insert(acc, name, line)
+        }
+      }
+      False ->
+        case dict.has_key(acc, name) {
+          True -> acc
+          False -> dict.insert(acc, name, [value_form(params, raw)])
+        }
     }
   })
+  |> dict.filter(fn(name, forms) {
+    list.any(forms, fn(form) {
+      form.parameters != []
+      || { !form.utc && list.contains(date_properties, name) }
+    })
+  })
+}
+
+fn value_form(params: List(Parameter), raw: String) -> PropertyForm {
+  PropertyForm(
+    parameters: params,
+    utc: string.ends_with(raw, "Z"),
+    date_only: !string.contains(raw, "T"),
+  )
+}
+
+fn is_date_form(forms: Dict(String, List(PropertyForm)), name: String) -> Bool {
+  case dict.get(forms, name) {
+    Ok([form, ..]) ->
+      form.date_only
+      || list.any(form.parameters, fn(p) {
+        string.uppercase(p.name) == "VALUE"
+        && string.uppercase(p.value) == "DATE"
+      })
+    _ -> False
+  }
+}
+
+// A setter gives `name` a UTC DATE-TIME. RFC 5545 wants DTSTART and
+// DTEND (or DUE) to share a value type, so a DATE `partner` is reset
+// to the same UTC DATE-TIME form.
+fn replace_date_form(
+  forms: Dict(String, List(PropertyForm)),
+  name: String,
+  partner: String,
+) -> Dict(String, List(PropertyForm)) {
+  let forms = dict.delete(forms, name)
+  case is_date_form(forms, partner) {
+    True -> dict.delete(forms, partner)
+    False -> forms
+  }
+}
+
+// A value added to RDATE or EXDATE is a UTC DATE-TIME; it must not
+// take the form of the parsed values.
+fn append_utc_form(
+  forms: Dict(String, List(PropertyForm)),
+  name: String,
+) -> Dict(String, List(PropertyForm)) {
+  case dict.get(forms, name) {
+    Ok(existing) -> dict.insert(forms, name, list.append(existing, [utc_form]))
+    Error(_) -> forms
+  }
 }
 
 fn find_value(props: List(RawProperty), name: String) -> Option(String) {
@@ -1367,27 +1437,27 @@ fn do_parse_datetime_list(
 // ============================================================
 
 @internal
-pub fn event_forms(event: Event) -> Dict(String, PropertyForm) {
+pub fn event_forms(event: Event) -> Dict(String, List(PropertyForm)) {
   event.forms
 }
 
 @internal
-pub fn todo_forms(t: Todo) -> Dict(String, PropertyForm) {
+pub fn todo_forms(t: Todo) -> Dict(String, List(PropertyForm)) {
   t.forms
 }
 
 @internal
-pub fn journal_forms(j: Journal) -> Dict(String, PropertyForm) {
+pub fn journal_forms(j: Journal) -> Dict(String, List(PropertyForm)) {
   j.forms
 }
 
 @internal
-pub fn freebusy_forms(fb: FreeBusy) -> Dict(String, PropertyForm) {
+pub fn freebusy_forms(fb: FreeBusy) -> Dict(String, List(PropertyForm)) {
   fb.forms
 }
 
 @internal
-pub fn alarm_forms(alarm: Alarm) -> Dict(String, PropertyForm) {
+pub fn alarm_forms(alarm: Alarm) -> Dict(String, List(PropertyForm)) {
   alarm.forms
 }
 
@@ -1846,7 +1916,11 @@ pub fn new_event(
 }
 
 pub fn with_dtstart(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtstart: Some(dt), forms: dict.delete(event.forms, "DTSTART"))
+  Event(
+    ..event,
+    dtstart: Some(dt),
+    forms: replace_date_form(event.forms, "DTSTART", "DTEND"),
+  )
 }
 
 pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
@@ -1854,7 +1928,11 @@ pub fn with_dtstart_tzid(event: Event, tzid: String) -> Event {
 }
 
 pub fn with_dtend(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, dtend: Some(dt), forms: dict.delete(event.forms, "DTEND"))
+  Event(
+    ..event,
+    dtend: Some(dt),
+    forms: replace_date_form(event.forms, "DTEND", "DTSTART"),
+  )
 }
 
 pub fn with_dtend_tzid(event: Event, tzid: String) -> Event {
@@ -1922,11 +2000,19 @@ pub fn with_rrule(event: Event, rule: rule_ast.RawRRule) -> Event {
 }
 
 pub fn add_rdate(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, rdates: list.append(event.rdates, [dt]))
+  Event(
+    ..event,
+    rdates: list.append(event.rdates, [dt]),
+    forms: append_utc_form(event.forms, "RDATE"),
+  )
 }
 
 pub fn add_exdate(event: Event, dt: schedule_ast.DateTime) -> Event {
-  Event(..event, exdates: list.append(event.exdates, [dt]))
+  Event(
+    ..event,
+    exdates: list.append(event.exdates, [dt]),
+    forms: append_utc_form(event.forms, "EXDATE"),
+  )
 }
 
 pub fn add_alarm(event: Event, alarm: Alarm) -> Event {
@@ -1971,11 +2057,15 @@ pub fn new_todo(
 }
 
 pub fn with_todo_dtstart(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, dtstart: Some(dt), forms: dict.delete(t.forms, "DTSTART"))
+  Todo(
+    ..t,
+    dtstart: Some(dt),
+    forms: replace_date_form(t.forms, "DTSTART", "DUE"),
+  )
 }
 
 pub fn with_todo_due(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, due: Some(dt), forms: dict.delete(t.forms, "DUE"))
+  Todo(..t, due: Some(dt), forms: replace_date_form(t.forms, "DUE", "DTSTART"))
 }
 
 pub fn with_todo_completed(t: Todo, dt: schedule_ast.DateTime) -> Todo {
@@ -2011,11 +2101,19 @@ pub fn with_todo_rrule(t: Todo, rule: rule_ast.RawRRule) -> Todo {
 }
 
 pub fn add_todo_rdate(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, rdates: list.append(t.rdates, [dt]))
+  Todo(
+    ..t,
+    rdates: list.append(t.rdates, [dt]),
+    forms: append_utc_form(t.forms, "RDATE"),
+  )
 }
 
 pub fn add_todo_exdate(t: Todo, dt: schedule_ast.DateTime) -> Todo {
-  Todo(..t, exdates: list.append(t.exdates, [dt]))
+  Todo(
+    ..t,
+    exdates: list.append(t.exdates, [dt]),
+    forms: append_utc_form(t.forms, "EXDATE"),
+  )
 }
 
 pub fn add_todo_alarm(t: Todo, alarm: Alarm) -> Todo {

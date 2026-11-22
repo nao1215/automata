@@ -477,13 +477,24 @@ fn quote_param_if_needed(value: String) -> String {
 // ============================================================
 
 type Forms =
-  dict.Dict(String, ical_validator.PropertyForm)
+  dict.Dict(String, List(ical_validator.PropertyForm))
+
+fn forms_for(forms: Forms, name: String) -> List(ical_validator.PropertyForm) {
+  case dict.get(forms, name) {
+    Ok(list) -> list
+    Error(_) -> []
+  }
+}
 
 fn form_of(forms: Forms, name: String) -> ical_validator.PropertyForm {
-  case dict.get(forms, name) {
-    Ok(form) -> form
-    Error(_) -> ical_validator.PropertyForm(parameters: [], utc: True)
+  case forms_for(forms, name) {
+    [form, ..] -> form
+    [] -> default_form()
   }
+}
+
+fn default_form() -> ical_validator.PropertyForm {
+  ical_validator.PropertyForm(parameters: [], utc: True, date_only: False)
 }
 
 /// `NAME;PARAM=...:value`, with the parameters the property was parsed
@@ -525,31 +536,65 @@ fn render_dt_opt(
 ) -> List(String) {
   case dt_opt {
     None -> []
-    Some(dt) -> [render_dt_values(forms, name, [dt], tzid_opt)]
+    Some(dt) -> [render_dt_values(form_of(forms, name), name, [dt], tzid_opt)]
   }
 }
 
+/// One line per run of consecutive values that share a form, so each
+/// parsed line comes back with its own parameters.
 fn render_dt_list(
   forms: Forms,
   name: String,
   values: List(schedule_ast.DateTime),
 ) -> List(String) {
-  case values {
-    [] -> []
-    _ -> [render_dt_values(forms, name, values, None)]
+  pair_forms(values, forms_for(forms, name), [])
+  |> group_by_form([])
+  |> list.map(fn(group) {
+    let #(form, dts) = group
+    render_dt_values(form, name, dts, None)
+  })
+}
+
+fn pair_forms(
+  values: List(schedule_ast.DateTime),
+  forms: List(ical_validator.PropertyForm),
+  acc: List(#(ical_validator.PropertyForm, schedule_ast.DateTime)),
+) -> List(#(ical_validator.PropertyForm, schedule_ast.DateTime)) {
+  case values, forms {
+    [], _ -> list.reverse(acc)
+    [value, ..rest], [form, ..forms] ->
+      pair_forms(rest, forms, [#(form, value), ..acc])
+    [value, ..rest], [] ->
+      pair_forms(rest, [], [#(default_form(), value), ..acc])
   }
 }
 
-/// Write date values in the form they were parsed in: `VALUE=DATE` as
-/// a DATE, a `TZID` or a value without `Z` as local time, anything else
-/// as UTC. A `tzid` from the model replaces the parsed `TZID`.
+fn group_by_form(
+  pairs: List(#(ical_validator.PropertyForm, schedule_ast.DateTime)),
+  acc: List(#(ical_validator.PropertyForm, List(schedule_ast.DateTime))),
+) -> List(#(ical_validator.PropertyForm, List(schedule_ast.DateTime))) {
+  case pairs, acc {
+    [], _ ->
+      list.reverse(
+        list.map(acc, fn(group) { #(group.0, list.reverse(group.1)) }),
+      )
+    [#(form, value), ..rest], [#(current, values), ..done] if form == current ->
+      group_by_form(rest, [#(current, [value, ..values]), ..done])
+    [#(form, value), ..rest], _ ->
+      group_by_form(rest, [#(form, [value]), ..acc])
+  }
+}
+
+/// Write date values in the form they were parsed in: `VALUE=DATE` or
+/// a value without a time part as a DATE, a `TZID` or a value without
+/// `Z` as local time, anything else as UTC. A `tzid` from the model
+/// replaces the parsed `TZID`.
 fn render_dt_values(
-  forms: Forms,
+  form: ical_validator.PropertyForm,
   name: String,
   values: List(schedule_ast.DateTime),
   tzid_opt: Option(String),
 ) -> String {
-  let form = form_of(forms, name)
   let params = case tzid_opt {
     None -> form.parameters
     Some(tzid) -> [
@@ -558,7 +603,8 @@ fn render_dt_values(
     ]
   }
   let is_date =
-    list.any(params, fn(p) {
+    form.date_only
+    || list.any(params, fn(p) {
       parameter_is(p, "VALUE") && string.uppercase(p.value) == "DATE"
     })
   let is_local = !form.utc || list.any(params, parameter_is(_, "TZID"))
