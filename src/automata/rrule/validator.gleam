@@ -275,7 +275,14 @@ fn apply_part(
     "BYYEARDAY" -> Error(UnsupportedPart(name: "BYYEARDAY"))
     "BYWEEKNO" -> Error(UnsupportedPart(name: "BYWEEKNO"))
     "BYSETPOS" -> Error(UnsupportedPart(name: "BYSETPOS"))
-    "WKST" -> Error(UnsupportedPart(name: "WKST"))
+    // Weeks always start on Monday here, which is the RFC 5545 default,
+    // so WKST=MO changes nothing and is accepted. Other week starts are
+    // not implemented.
+    "WKST" ->
+      case string.uppercase(value) {
+        "MO" -> Ok(partial)
+        _ -> Error(UnsupportedPart(name: "WKST"))
+      }
     "BYEASTER" -> Error(UnsupportedPart(name: "BYEASTER"))
     _ -> Error(UnknownPart(name: name))
   }

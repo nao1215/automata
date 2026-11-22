@@ -167,7 +167,7 @@ pub fn every_other_week() {
 ```
 
 Anchor seconds are kept. `BYSECOND`, `BYYEARDAY`, `BYWEEKNO`,
-`BYSETPOS`, `WKST`, `DTSTART`, `RDATE`, and `EXDATE` are not supported.
+`BYSETPOS`, `WKST` other than `MO`, `DTSTART`, `RDATE`, and `EXDATE` are not supported.
 For a spec and anchor you reuse, `rrule.normalize/2` returns an
 `RRulePlan` for `rrule.matches_plan`, `iterator_after_plan`, and
 `next_after_plan`.

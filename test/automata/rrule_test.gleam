@@ -988,3 +988,20 @@ pub fn minutely_interval_with_by_hour_test() {
     "2026-01-01T09:06:00", "2026-01-01T09:13:00", "2026-01-01T09:20:00",
   ])
 }
+
+pub fn validate_accepts_default_wkst_test() {
+  let spec = parse_and_validate("FREQ=WEEKLY;WKST=MO")
+  rrule.to_string(spec) |> should.equal("FREQ=WEEKLY")
+  rrule.next_after(
+    spec,
+    anchor: vdt(2026, 1, 5, 9, 0, 0),
+    after: vdt(2026, 1, 5, 9, 0, 0),
+  )
+  |> should.equal(Ok(Some(vdt(2026, 1, 12, 9, 0, 0))))
+}
+
+pub fn validate_rejects_non_default_wkst_test() {
+  let assert Ok(raw) = rrule.parse("FREQ=WEEKLY;WKST=SU")
+  rrule.validate(raw)
+  |> should.equal(Error(rule_validator.UnsupportedPart(name: "WKST")))
+}
