@@ -4,6 +4,7 @@ import automata/ical/parser as ical_parser
 import automata/ical/validator as ical_validator
 import automata/rrule
 import automata/schedule/ast as schedule_ast
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -577,4 +578,53 @@ pub fn encode_preserves_z_on_created_and_last_modified_test() {
   string.contains(encoded, "CREATED:20260101T100000Z") |> should.equal(True)
   string.contains(encoded, "LAST-MODIFIED:20260105T120000Z")
   |> should.equal(True)
+}
+
+// ============================================================
+// Component order
+// ============================================================
+
+fn stamp() -> schedule_ast.DateTime {
+  schedule_ast.datetime(2026, 5, 11, 9, 0, 0)
+}
+
+pub fn add_component_keeps_insertion_order_test() {
+  let cal =
+    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> ical.add_event(ical.new_event(uid: "e1", dtstamp: stamp()))
+    |> ical.add_todo(ical.new_todo(uid: "t1", dtstamp: stamp()))
+    |> ical.add_event(ical.new_event(uid: "e2", dtstamp: stamp()))
+    |> ical.add_todo(ical.new_todo(uid: "t2", dtstamp: stamp()))
+    |> ical.add_event(ical.new_event(uid: "e3", dtstamp: stamp()))
+
+  list.map(ical.events(cal), ical.event_uid)
+  |> should.equal(["e1", "e2", "e3"])
+  list.map(ical.todos(cal), ical.todo_uid) |> should.equal(["t1", "t2"])
+
+  let assert Ok(decoded) = ical.parse(ical.encode(cal))
+  list.map(ical.events(decoded), ical.event_uid)
+  |> should.equal(["e1", "e2", "e3"])
+  decoded |> should.equal(cal)
+}
+
+pub fn add_many_events_keeps_order_test() {
+  let cal =
+    list.fold(
+      list.repeat(Nil, 3000),
+      #(ical.new_calendar(version: "2.0", prod_id: "-//x//EN"), 0),
+      fn(acc, _) {
+        let #(cal, n) = acc
+        #(
+          ical.add_event(
+            cal,
+            ical.new_event(uid: "e" <> int.to_string(n), dtstamp: stamp()),
+          ),
+          n + 1,
+        )
+      },
+    ).0
+  let uids = list.map(ical.events(cal), ical.event_uid)
+  list.length(uids) |> should.equal(3000)
+  list.first(uids) |> should.equal(Ok("e0"))
+  list.last(uids) |> should.equal(Ok("e2999"))
 }

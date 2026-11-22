@@ -37,12 +37,14 @@ pub opaque type Calendar {
     product_id: String,
     method: Option(String),
     calscale: Option(String),
-    events: List(Event),
-    todos: List(Todo),
-    journals: List(Journal),
-    freebusy: List(FreeBusy),
-    timezones: List(Timezone),
-    unknown_components: List(UnknownComponent),
+    // Components are kept newest first so that `add_*` is O(1); the
+    // accessors reverse them back into document order.
+    events_rev: List(Event),
+    todos_rev: List(Todo),
+    journals_rev: List(Journal),
+    freebusy_rev: List(FreeBusy),
+    timezones_rev: List(Timezone),
+    unknown_components_rev: List(UnknownComponent),
     x_properties: Dict(String, String),
   )
 }
@@ -196,12 +198,12 @@ pub fn validate(raw: RawCalendar) -> Result(Calendar, ValidationError) {
                 product_id: prod_raw,
                 method: method,
                 calscale: calscale,
-                events: events,
-                todos: todos,
-                journals: journals,
-                freebusy: freebusy,
-                timezones: timezones,
-                unknown_components: unknowns,
+                events_rev: events,
+                todos_rev: todos,
+                journals_rev: journals,
+                freebusy_rev: freebusy,
+                timezones_rev: timezones,
+                unknown_components_rev: unknowns,
                 x_properties: x_props,
               ))
             }
@@ -240,18 +242,9 @@ fn empty_buckets() -> ComponentBuckets {
 fn classify_components(
   components: List(RawComponent),
 ) -> Result(ComponentBuckets, ValidationError) {
-  case do_classify(components, empty_buckets()) {
-    Error(err) -> Error(err)
-    Ok(b) ->
-      Ok(ComponentBuckets(
-        events: list.reverse(b.events),
-        todos: list.reverse(b.todos),
-        journals: list.reverse(b.journals),
-        freebusy: list.reverse(b.freebusy),
-        timezones: list.reverse(b.timezones),
-        unknowns: list.reverse(b.unknowns),
-      ))
-  }
+  // The buckets come out newest first, which is how `Calendar` stores
+  // its components.
+  do_classify(components, empty_buckets())
 }
 
 fn do_classify(
@@ -1362,27 +1355,27 @@ pub fn calscale(cal: Calendar) -> Option(String) {
 }
 
 pub fn events(cal: Calendar) -> List(Event) {
-  cal.events
+  list.reverse(cal.events_rev)
 }
 
 pub fn todos(cal: Calendar) -> List(Todo) {
-  cal.todos
+  list.reverse(cal.todos_rev)
 }
 
 pub fn journals(cal: Calendar) -> List(Journal) {
-  cal.journals
+  list.reverse(cal.journals_rev)
 }
 
 pub fn freebusy(cal: Calendar) -> List(FreeBusy) {
-  cal.freebusy
+  list.reverse(cal.freebusy_rev)
 }
 
 pub fn timezones(cal: Calendar) -> List(Timezone) {
-  cal.timezones
+  list.reverse(cal.timezones_rev)
 }
 
 pub fn unknown_components(cal: Calendar) -> List(UnknownComponent) {
-  cal.unknown_components
+  list.reverse(cal.unknown_components_rev)
 }
 
 pub fn calendar_x_properties(cal: Calendar) -> Dict(String, String) {
@@ -1706,12 +1699,12 @@ pub fn new_calendar(
     product_id: prod_id,
     method: None,
     calscale: None,
-    events: [],
-    todos: [],
-    journals: [],
-    freebusy: [],
-    timezones: [],
-    unknown_components: [],
+    events_rev: [],
+    todos_rev: [],
+    journals_rev: [],
+    freebusy_rev: [],
+    timezones_rev: [],
+    unknown_components_rev: [],
     x_properties: dict.new(),
   )
 }
@@ -1725,33 +1718,33 @@ pub fn with_calscale(cal: Calendar, scale: String) -> Calendar {
 }
 
 pub fn add_event(cal: Calendar, event: Event) -> Calendar {
-  Calendar(..cal, events: list.append(cal.events, [event]))
+  Calendar(..cal, events_rev: [event, ..cal.events_rev])
 }
 
 pub fn add_todo(cal: Calendar, t: Todo) -> Calendar {
-  Calendar(..cal, todos: list.append(cal.todos, [t]))
+  Calendar(..cal, todos_rev: [t, ..cal.todos_rev])
 }
 
 pub fn add_journal(cal: Calendar, j: Journal) -> Calendar {
-  Calendar(..cal, journals: list.append(cal.journals, [j]))
+  Calendar(..cal, journals_rev: [j, ..cal.journals_rev])
 }
 
 pub fn add_freebusy(cal: Calendar, fb: FreeBusy) -> Calendar {
-  Calendar(..cal, freebusy: list.append(cal.freebusy, [fb]))
+  Calendar(..cal, freebusy_rev: [fb, ..cal.freebusy_rev])
 }
 
 pub fn add_timezone(cal: Calendar, tz: Timezone) -> Calendar {
-  Calendar(..cal, timezones: list.append(cal.timezones, [tz]))
+  Calendar(..cal, timezones_rev: [tz, ..cal.timezones_rev])
 }
 
 pub fn add_unknown_component(
   cal: Calendar,
   component: UnknownComponent,
 ) -> Calendar {
-  Calendar(
-    ..cal,
-    unknown_components: list.append(cal.unknown_components, [component]),
-  )
+  Calendar(..cal, unknown_components_rev: [
+    component,
+    ..cal.unknown_components_rev
+  ])
 }
 
 pub fn with_calendar_x_property(
