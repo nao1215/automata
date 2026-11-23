@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-23
+
 ### Changed
 
 - Breaking: `ical_encode` returns `IcalInvalidParameterValue(property, parameter, value)` for a parameter value containing DQUOTE. RFC 5545 has no way to write such a value, and the output previously failed to parse again.
