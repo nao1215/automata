@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Breaking: `ical_encode` returns `IcalInvalidParameterValue(property, parameter, value)` for a parameter value containing DQUOTE. RFC 5545 has no way to write such a value, and the output previously failed to parse again.
+- Breaking: cron fields, RRULE `INTERVAL`, `COUNT`, `BYMONTH`, `BYHOUR`, `BYMINUTE`, and UNTIL digits accept unsigned decimal digits only, as Vixie cron, croniter, and RFC 5545 do. `+5 * * * *`, `INTERVAL=+2`, and `UNTIL=-0010101` are now errors. `BYMONTHDAY` and `BYDAY` ordinals keep their optional sign.
+- Repeated `BYDAY` values are removed like repeated values in the other lists, so `BYDAY=MO,TU,MO` renders as `BYDAY=MO,TU`.
+
+### Fixed
+
+- `FREQ=HOURLY` and `FREQ=MINUTELY` periods are clock hours and minutes counted from the anchor's hour or minute, as in RFC 5545 and python-dateutil. With an anchor of 09:30:17, `FREQ=HOURLY;INTERVAL=2;BYMINUTE=15` now yields 11:15:17 and 13:15:17 instead of 10:15:17 and 12:15:17, and `schedule_matches` agrees.
+- Sub-daily rules skip spans that their day, hour, and minute filters exclude, so `FREQ=SECONDLY;BYMONTHDAY=31` or `FREQ=MINUTELY;BYMONTH=12;BYMONTHDAY=31` returns the next occurrence instead of `ScheduleSearchLimitReached`. A rule whose filters can never be reached from the anchor, such as `FREQ=HOURLY;INTERVAL=3;BYHOUR=18` anchored at 16:00, is an empty sequence (`Done`), as in python-dateutil.
+- A `COUNT` rule without BY filters counts the occurrences before a query arithmetically. `FREQ=DAILY;COUNT=300000` answers `schedule_matches` and `schedule_iterator` near the end of the sequence instead of reaching the search limit.
+- The cron documentation states that only a plain `*` is a wildcard for the day-of-month/day-of-week rule, and that an inclusive boundary with nonzero seconds starts after its minute.
+
 ## [0.14.0] - 2026-11-23
 
 ### Changed

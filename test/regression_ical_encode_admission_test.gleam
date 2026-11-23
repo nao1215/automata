@@ -203,3 +203,26 @@ pub fn earlier_date_error_precedes_later_url_newline_test() {
     Error(a.IcalInvalidDateValue("DTSTAMP", bad(), a.InvalidTime(0, 0, 0, 1))),
   )
 }
+
+pub fn parameter_value_with_dquote_is_rejected_test() {
+  // RFC 5545 parameter values cannot contain DQUOTE, quoted or not, so the
+  // output would not parse again.
+  let event =
+    a.ical_new_event(uid: "event", dtstamp: stamp())
+    |> a.ical_with_dtstart(stamp())
+    |> a.ical_with_dtstart_tzid("A\"B")
+  a.ical_encode(event_calendar(event))
+  |> should.equal(Error(a.IcalInvalidParameterValue("DTSTART", "TZID", "A\"B")))
+}
+
+pub fn parsed_parameter_values_round_trip_test() {
+  let input =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:p\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nATTENDEE;CN=\"Doe, Jane\";ROLE=CHAIR:mailto:j@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+  let assert Ok(cal) = a.ical_parse(input)
+  let assert Ok(wire) = a.ical_encode(cal)
+  string.contains(
+    wire,
+    "ATTENDEE;CN=\"Doe, Jane\";ROLE=CHAIR:mailto:j@example.com",
+  )
+  |> should.be_true
+}

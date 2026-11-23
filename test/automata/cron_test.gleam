@@ -919,3 +919,19 @@ fn old_cron_validator_selector_values(
     matches_cron(spec: cron, at: at)
   })
 }
+
+pub fn validate_rejects_signed_numbers_test() {
+  // Vixie cron and croniter read unsigned digits only.
+  let validate = fn(input) {
+    let assert Ok(raw) = a.cron_parse_raw(input: input)
+    a.cron_validate(raw: raw)
+  }
+  validate("+5 * * * *")
+  |> should.equal(Error(a.CronInvalidNumber(a.CronMinute, "+5")))
+  validate("1-+5 * * * *")
+  |> should.equal(Error(a.CronInvalidNumber(a.CronMinute, "+5")))
+  validate("*/+2 * * * *")
+  |> should.equal(Error(a.CronInvalidStep(a.CronMinute, "*/+2")))
+  validate("0 0 * * +1")
+  |> should.equal(Error(a.CronInvalidAlias(a.CronDayOfWeek, "+1")))
+}

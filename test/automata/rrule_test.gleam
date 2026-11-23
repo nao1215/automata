@@ -1259,3 +1259,40 @@ fn step_schedule(iterator iterator: a.OccurrenceIterator) -> a.IterStep {
   let assert Ok(value) = a.schedule_step(iterator)
   value
 }
+
+pub fn validate_rejects_signs_outside_signed_parts_test() {
+  // RFC 5545 allows a sign only in BYMONTHDAY and BYDAY ordinals.
+  let validate = fn(input) {
+    let assert Ok(raw) = a.rrule_parse_raw(input: input)
+    a.rrule_validate(raw: raw)
+  }
+  validate("FREQ=DAILY;INTERVAL=+2")
+  |> should.equal(Error(a.RruleInvalidNumber(a.IntervalPart, "+2")))
+  validate("FREQ=DAILY;COUNT=+3")
+  |> should.equal(Error(a.RruleInvalidNumber(a.CountPart, "+3")))
+  validate("FREQ=DAILY;BYHOUR=+1")
+  |> should.equal(Error(a.RruleInvalidNumber(a.ByHourPart, "+1")))
+  validate("FREQ=DAILY;BYMINUTE=-0")
+  |> should.equal(Error(a.RruleInvalidNumber(a.ByMinutePart, "-0")))
+  validate("FREQ=DAILY;BYMONTH=+1")
+  |> should.equal(Error(a.RruleInvalidNumber(a.ByMonthPart, "+1")))
+  let assert Ok(rule) = validate("FREQ=MONTHLY;BYMONTHDAY=+1,-1;BYDAY=+1MO")
+  a.rrule_to_string(rule)
+  |> should.equal("FREQ=MONTHLY;BYDAY=1MO;BYMONTHDAY=-1,1")
+}
+
+pub fn repeated_weekdays_are_normalized_like_other_lists_test() {
+  a.rrule_to_string(parse_and_validate("FREQ=WEEKLY;BYDAY=MO,TU,MO"))
+  |> should.equal("FREQ=WEEKLY;BYDAY=MO,TU")
+  let options =
+    a.RecurrenceOptions(
+      ..a.rrule_options(a.Weekly),
+      by_day: Some([
+        a.EveryWeekday(calendar.Friday),
+        a.EveryWeekday(calendar.Friday),
+      ]),
+    )
+  let assert Ok(rule) = a.rrule_new(options)
+  a.rrule_to_options(rule).by_day
+  |> should.equal(Some([a.EveryWeekday(calendar.Friday)]))
+}

@@ -43,7 +43,6 @@ import gleam/string
 import gleam/time/calendar
 import gleam/time/duration
 
-// From automata
 /// A deterministic state machine with caller-supplied transition and acceptance functions.
 ///
 /// The state and input symbol may be any types. `run` folds inputs from the initial state; `accepts` tests the resulting state.
@@ -99,30 +98,6 @@ pub fn ical_parse(input: String) -> Result(IcalCalendar, IcalError) {
   ical_validate(raw)
 }
 
-/// Encode a calendar with CRLF endings and folding at 75 UTF-8 bytes per physical line.
-///
-/// Check typed dates, representable years, and rendered logical lines in emission order, returning the first error. Dates must be real whole-second civil values, including fields emitted as DATE. Wire years range from -999 through 9999; negative years use the parser's existing sign-plus-three-digits form. A raw line containing CR or LF is rejected.
-///
-/// Normalize CRLF and bare CR in typed TEXT to LF before escaping it. Getters continue to return the stored text; encoding and parsing can therefore normalize line endings. Preserve parsed raw-text handling and DATE/floating/UTC/TZID forms unless an update replaced them. This does not perform timezone conversion or complete RFC validation.
-///
-/// Emit component groups in timezone, event, task, journal, free/busy, unknown order, retaining order within each group. Folding includes the continuation space in its byte limit.
-///
-/// ## Examples
-///
-/// ```gleam
-/// let calendar = ical_new_calendar("2.0", "example")
-/// let assert Ok(wire) = ical_encode(calendar)
-/// let assert Ok(_) = ical_parse(wire)
-///
-/// ical_new_calendar("2.0", "example")
-/// |> ical_with_method("PUBLISH\nOTHER")
-/// |> ical_encode
-/// // Error(IcalPhysicalNewline("METHOD:PUBLISH\nOTHER"))
-/// ```
-pub fn ical_encode(calendar: IcalCalendar) -> Result(String, IcalEncodeError) {
-  ical_emitter_encode(calendar)
-}
-
 /// A reusable cron, recurrence, fixed-interval, or one-shot schedule with validated inputs and private lookup data.
 pub opaque type Schedule {
   PlanCron(plan: CronPlan)
@@ -175,18 +150,9 @@ fn schedule_every_matches(plan: EveryPlan, at: DateTime) -> Bool {
 
 fn schedule_once_eligible(at: DateTime, boundary: Boundary) -> Bool {
   case boundary {
-    Inclusive(valid) ->
-      internal_calendar_less_or_equal(
-        schedule_ast_valid_datetime_value(valid),
-        at,
-      )
-    Exclusive(valid) ->
-      internal_calendar_less_than(schedule_ast_valid_datetime_value(valid), at)
+    Inclusive(valid) -> internal_calendar_less_or_equal(valid.value, at)
+    Exclusive(valid) -> internal_calendar_less_than(valid.value, at)
   }
-}
-
-fn rrule_parse(input input: String) -> Result(RawRRule, RruleParseError) {
-  rrule_parse_raw(input: input)
 }
 
 /// An event with an arbitrary body, producer, civil occurrence time, and metadata.
@@ -268,10 +234,6 @@ pub type Jitter {
 fn retry_duration_milliseconds(duration duration: duration.Duration) -> Int {
   let #(seconds, nanoseconds) = duration.to_seconds_and_nanoseconds(duration)
   seconds * 1000 + nanoseconds / 1_000_000
-}
-
-fn retry_unsafe_milliseconds(value value: Int) -> duration.Duration {
-  retry_milliseconds(value)
 }
 
 /// A validated retry strategy with an optional jitter mode.
@@ -428,7 +390,7 @@ pub fn retry_start(policy policy: RetryPolicy, seed seed: Int) -> RetryContext {
   RetryContext(
     policy: policy,
     attempt: 0,
-    cumulative_delay: retry_unsafe_milliseconds(value: 0),
+    cumulative_delay: duration.milliseconds(0),
     prng: retry_warm_up(prng.new(seed: seed), 3),
   )
 }
@@ -689,9 +651,9 @@ fn retry_finish_decision(
   case final_ms > retry_max_safe_milliseconds - prev_cum {
     True -> GiveUp(reason: DelayOverflow(at_attempt: next_attempt))
     False -> {
-      let new_cum = retry_unsafe_milliseconds(value: prev_cum + final_ms)
+      let new_cum = duration.milliseconds(prev_cum + final_ms)
       Retry(
-        delay: retry_unsafe_milliseconds(value: final_ms),
+        delay: duration.milliseconds(final_ms),
         next: RetryContext(
           policy: ctx.policy,
           attempt: next_attempt,
@@ -741,12 +703,12 @@ fn filesystem_diff_compare_entry(
   new new: Option(Entry),
 ) -> Set(Op) {
   case old, new {
-    None, None -> filesystem_op_empty_ops()
+    None, None -> set.new()
     None, Some(e) -> filesystem_diff_ops_for_creation(e)
-    Some(_), None -> filesystem_op_single_op(op: Remove)
+    Some(_), None -> set.from_list([Remove])
     Some(o), Some(n) ->
       case entry_kind(entry: o) == entry_kind(entry: n) {
-        False -> filesystem_op_ops_from_list(ops: [Remove, Create])
+        False -> set.from_list([Remove, Create])
         True -> filesystem_diff_ops_for_modification(o, n)
       }
   }
@@ -763,10 +725,10 @@ fn filesystem_diff_ops_for_creation(e: Entry) -> Set(Op) {
   case entry_kind(entry: e) {
     File ->
       case entry_size(entry: e) > 0 {
-        True -> filesystem_op_ops_from_list(ops: [Create, Write])
-        False -> filesystem_op_single_op(op: Create)
+        True -> set.from_list([Create, Write])
+        False -> set.from_list([Create])
       }
-    Directory | Symlink -> filesystem_op_single_op(op: Create)
+    Directory | Symlink -> set.from_list([Create])
   }
 }
 
@@ -774,10 +736,10 @@ fn filesystem_diff_ops_for_modification(old: Entry, new: Entry) -> Set(Op) {
   let mode_changed = entry_mode(entry: old) != entry_mode(entry: new)
   let content_changed = filesystem_diff_content_changed(old, new)
   case content_changed, mode_changed {
-    False, False -> filesystem_op_empty_ops()
-    False, True -> filesystem_op_single_op(op: Chmod)
-    True, False -> filesystem_op_single_op(op: Write)
-    True, True -> filesystem_op_ops_from_list(ops: [Write, Chmod])
+    False, False -> set.new()
+    False, True -> set.from_list([Chmod])
+    True, False -> set.from_list([Write])
+    True, True -> set.from_list([Write, Chmod])
   }
 }
 
@@ -796,8 +758,8 @@ fn filesystem_diff_build_event_for(
   curr: Snapshot,
   renames: Dict(String, NormalizedPath),
 ) -> Result(WatchEvent, Nil) {
-  let prev_entry = filesystem_diff_lookup_by_key(prev, key)
-  let curr_entry = filesystem_diff_lookup_by_key(curr, key)
+  let prev_entry = filesystem_snapshot_lookup_by_key(prev, key)
+  let curr_entry = filesystem_snapshot_lookup_by_key(curr, key)
   let base_ops = case prev_entry, curr_entry {
     // A changed identity is a replacement even when metadata is unchanged.
     // apply_rename folds this pair only if this path is a rename destination.
@@ -899,10 +861,6 @@ fn filesystem_diff_path_union(prev: Snapshot, curr: Snapshot) -> List(String) {
   let curr_keys = set.from_list(filesystem_snapshot_paths(curr))
   set.union(prev_keys, curr_keys)
   |> set.to_list
-}
-
-fn filesystem_diff_lookup_by_key(s: Snapshot, key: String) -> Option(Entry) {
-  filesystem_snapshot_lookup_by_key(s, key)
 }
 
 fn filesystem_diff_detect_renames(
@@ -1007,21 +965,9 @@ fn filesystem_diff_renames_suppressed_paths(
   |> set.from_list
 }
 
-fn filesystem_op_empty_ops() -> Set(Op) {
-  set.new()
-}
-
 /// Return a set containing Create, Write, Remove, Rename, and Chmod.
 pub fn all_ops() -> Set(Op) {
   set.from_list(filesystem_op_canonical_order())
-}
-
-fn filesystem_op_single_op(op op: Op) -> Set(Op) {
-  set.from_list([op])
-}
-
-fn filesystem_op_ops_from_list(ops ops: List(Op)) -> Set(Op) {
-  set.from_list(ops)
 }
 
 /// List selected operations in Create, Write, Remove, Rename, Chmod order.
@@ -1715,10 +1661,6 @@ fn schedule_ast_try_datetime(
   }
 }
 
-fn schedule_ast_valid_datetime_value(valid: ValidDateTime) -> DateTime {
-  valid.value
-}
-
 fn schedule_ast_is_valid_date_components(
   year: Int,
   month: Int,
@@ -1787,36 +1729,16 @@ type CronPlan {
 
 fn compile_cron(spec spec: Cron) -> CronPlan {
   CronPlan(
-    minute: cron_normalize_normalize_selector(
-      cron_validator_minute(spec),
-      0,
-      59,
-      False,
-    ),
-    hour: cron_normalize_normalize_selector(
-      cron_validator_hour(spec),
-      0,
-      23,
-      False,
-    ),
+    minute: cron_normalize_normalize_selector(spec.minute, 0, 59, False),
+    hour: cron_normalize_normalize_selector(spec.hour, 0, 23, False),
     day_of_month: cron_normalize_normalize_selector(
-      cron_validator_day_of_month(spec),
+      spec.day_of_month,
       1,
       31,
       False,
     ),
-    month: cron_normalize_normalize_selector(
-      cron_validator_month(spec),
-      1,
-      12,
-      False,
-    ),
-    day_of_week: cron_normalize_normalize_selector(
-      cron_validator_day_of_week(spec),
-      0,
-      6,
-      True,
-    ),
+    month: cron_normalize_normalize_selector(spec.month, 1, 12, False),
+    day_of_week: cron_normalize_normalize_selector(spec.day_of_week, 0, 6, True),
   )
 }
 
@@ -1873,26 +1795,6 @@ pub opaque type Cron {
   )
 }
 
-fn cron_validator_minute(spec: Cron) -> CronSelector {
-  spec.minute
-}
-
-fn cron_validator_hour(spec: Cron) -> CronSelector {
-  spec.hour
-}
-
-fn cron_validator_day_of_month(spec: Cron) -> CronSelector {
-  spec.day_of_month
-}
-
-fn cron_validator_month(spec: Cron) -> CronSelector {
-  spec.month
-}
-
-fn cron_validator_day_of_week(spec: Cron) -> CronSelector {
-  spec.day_of_week
-}
-
 /// An invalid cron field value, unsupported field syntax, or impossible date selection.
 pub type CronValidationError {
   CronUnsupportedSyntax(field: CronField, value: String)
@@ -1913,7 +1815,7 @@ type CronAliases {
 
 /// Validate raw cron fields and produce a reusable cron specification.
 ///
-/// Check minute, hour, day of month, month, and day of week in that order, then date constraints. Sunday accepts 0 or 7. When both day fields are restricted, a match in either field is sufficient. Preserve the distinction between a wildcard and an explicitly listed full range.
+/// Check minute, hour, day of month, month, and day of week in that order, then date constraints. Sunday accepts 0 or 7. Numbers are unsigned decimal digits. When both day fields are restricted, a match in either field is sufficient. Only a plain `*` is a wildcard for this rule, as in croniter: `*/2` restricts its field, while Vixie cron treats a field beginning with `*` as a wildcard. Preserve the distinction between a wildcard and an explicitly listed full range.
 pub fn cron_validate(raw raw: RawCron) -> Result(Cron, CronValidationError) {
   {
     use minute <- result.try(cron_validator_parse_selector(
@@ -2214,7 +2116,7 @@ fn cron_validator_parse_step(
   case string.split(part, on: "/") {
     [base, step_text] if base != "" && step_text != "" -> {
       use step <- result.try(
-        int.parse(step_text)
+        parse_digits(step_text)
         |> result.replace_error(CronInvalidStep(field, part)),
       )
       case cron_validator_step_in_bounds(step, min, max) {
@@ -2290,7 +2192,7 @@ fn cron_validator_parse_value(
   max: Int,
   aliases: CronAliases,
 ) -> Result(Int, CronValidationError) {
-  case int.parse(value) {
+  case parse_digits(value) {
     Ok(number) -> cron_validator_ensure_range(field, number, min, max)
     Error(Nil) ->
       case cron_validator_parse_alias(field, value, aliases) {
@@ -2862,6 +2764,10 @@ type RecurrencePlan {
     by_hour: List(Int),
     by_minute: List(Int),
     seconds: List(Int),
+    time_reachable: Bool,
+    // Seconds between occurrences when every period holds exactly one
+    // occurrence at the anchor's offset, so COUNT can be computed directly.
+    fixed_step: Option(Int),
   )
 }
 
@@ -2870,25 +2776,101 @@ fn compile_recurrence(
   anchor validated: ValidDateTime,
 ) -> RecurrencePlan {
   let anchor = validated.value
-  let frequency = rrule_validator_frequency(spec)
+  let frequency = spec.frequency
+  let by_hour = case spec.by_hour {
+    Some(values) -> values
+    None -> rrule_normalize_default_by_hour(frequency, anchor)
+  }
+  let by_minute = case spec.by_minute {
+    Some(values) -> values
+    None -> rrule_normalize_default_by_minute(frequency, anchor)
+  }
+  let seconds = rrule_normalize_default_seconds(frequency, anchor)
   RecurrencePlan(
     anchor: anchor,
     frequency: frequency,
-    interval: rrule_validator_interval(spec),
-    end_condition: rrule_validator_end_condition(spec),
+    interval: spec.interval,
+    end_condition: spec.end_condition,
     by_day: rrule_normalize_default_by_day(spec, anchor),
     by_month: rrule_normalize_default_by_month(spec, anchor),
     by_month_day: rrule_normalize_default_by_month_day(spec, anchor),
-    by_hour: case rrule_validator_by_hour(spec) {
-      Some(values) -> values
-      None -> rrule_normalize_default_by_hour(frequency, anchor)
-    },
-    by_minute: case rrule_validator_by_minute(spec) {
-      Some(values) -> values
-      None -> rrule_normalize_default_by_minute(frequency, anchor)
-    },
-    seconds: rrule_normalize_default_seconds(frequency, anchor),
+    by_hour: by_hour,
+    by_minute: by_minute,
+    seconds: seconds,
+    time_reachable: recurrence_time_reachable(
+      frequency,
+      spec.interval,
+      anchor,
+      by_hour,
+      by_minute,
+      seconds,
+    ),
+    fixed_step: recurrence_fixed_step(spec),
   )
+}
+
+fn recurrence_fixed_step(spec: RecurrenceRule) -> Option(Int) {
+  let unit = case spec.frequency {
+    Secondly -> Some(1)
+    Minutely -> Some(60)
+    Hourly -> Some(3600)
+    Daily -> Some(86_400)
+    Weekly -> Some(604_800)
+    Monthly | Yearly -> None
+  }
+  case
+    unit,
+    spec.by_day,
+    spec.by_month,
+    spec.by_month_day,
+    spec.by_hour,
+    spec.by_minute
+  {
+    Some(unit), None, None, None, None, None ->
+      case spec.interval <= 1_000_000_000 {
+        True -> Some(spec.interval * unit)
+        False -> None
+      }
+    _, _, _, _, _, _ -> None
+  }
+}
+
+// Count the occurrences from the anchor that come before the boundary.
+fn recurrence_count_from_anchor(
+  plan: RecurrencePlan,
+  boundary: Boundary,
+  limit: Int,
+  budget: SearchBudget,
+) -> Result(#(Int, SearchBudget), ScheduleError) {
+  let #(target, exclusive) = boundary_position(boundary)
+  let anchor = civil_position(plan.anchor)
+  let eras = target.era - anchor.era
+  case plan.fixed_step {
+    Some(step) if eras < 700_000 && eras > -700_000 -> {
+      let distance =
+        eras
+        * 12_622_780_800
+        + { target.day - anchor.day }
+        * 86_400
+        + target.second
+        - anchor.second
+      let count = case distance < 0, exclusive {
+        True, _ -> 0
+        False, False -> { distance + step - 1 } / step
+        False, True -> distance / step + 1
+      }
+      Ok(#(int.min(count, limit), budget))
+    }
+    _ ->
+      recurrence_count_before(
+        plan,
+        boundary,
+        Inclusive(ValidDateTime(plan.anchor)),
+        0,
+        limit,
+        budget,
+      )
+  }
 }
 
 fn rrule_normalize_default_by_hour(
@@ -2944,10 +2926,10 @@ fn rrule_normalize_default_by_day(
   spec: RecurrenceRule,
   anchor: DateTime,
 ) -> Option(List(WeekdaySpecifier)) {
-  case rrule_validator_by_day(spec) {
+  case spec.by_day {
     Some(values) -> Some(values)
     None ->
-      case rrule_validator_frequency(spec) {
+      case spec.frequency {
         Weekly -> Some([EveryWeekday(internal_calendar_weekday(anchor))])
         Secondly | Minutely | Hourly | Daily | Monthly | Yearly -> None
       }
@@ -2958,15 +2940,12 @@ fn rrule_normalize_default_by_month(
   spec: RecurrenceRule,
   anchor: DateTime,
 ) -> Option(List(Int)) {
-  case rrule_validator_by_month(spec) {
+  case spec.by_month {
     Some(values) -> Some(values)
     None ->
-      case rrule_validator_frequency(spec) {
+      case spec.frequency {
         Yearly ->
-          case
-            rrule_validator_by_day(spec),
-            rrule_validator_by_month_day(spec)
-          {
+          case spec.by_day, spec.by_month_day {
             None, None -> Some([calendar.month_to_int(anchor.date.month)])
             _, _ -> None
           }
@@ -2979,13 +2958,13 @@ fn rrule_normalize_default_by_month_day(
   spec: RecurrenceRule,
   anchor: DateTime,
 ) -> Option(List(Int)) {
-  case rrule_validator_by_month_day(spec) {
+  case spec.by_month_day {
     Some(values) -> Some(values)
     None ->
-      case rrule_validator_by_day(spec) {
+      case spec.by_day {
         Some(_) -> None
         None ->
-          case rrule_validator_frequency(spec) {
+          case spec.frequency {
             Monthly | Yearly -> Some([anchor.date.day])
             Secondly | Minutely | Hourly | Daily | Weekly -> None
           }
@@ -3052,40 +3031,6 @@ pub opaque type RecurrenceRule {
     by_hour: Option(List(Int)),
     by_minute: Option(List(Int)),
   )
-}
-
-fn rrule_validator_frequency(spec: RecurrenceRule) -> Frequency {
-  spec.frequency
-}
-
-fn rrule_validator_interval(spec: RecurrenceRule) -> Int {
-  spec.interval
-}
-
-fn rrule_validator_end_condition(spec: RecurrenceRule) -> EndCondition {
-  spec.end_condition
-}
-
-fn rrule_validator_by_day(
-  spec: RecurrenceRule,
-) -> Option(List(WeekdaySpecifier)) {
-  spec.by_day
-}
-
-fn rrule_validator_by_month(spec: RecurrenceRule) -> Option(List(Int)) {
-  spec.by_month
-}
-
-fn rrule_validator_by_month_day(spec: RecurrenceRule) -> Option(List(Int)) {
-  spec.by_month_day
-}
-
-fn rrule_validator_by_hour(spec: RecurrenceRule) -> Option(List(Int)) {
-  spec.by_hour
-}
-
-fn rrule_validator_by_minute(spec: RecurrenceRule) -> Option(List(Int)) {
-  spec.by_minute
 }
 
 /// An invalid or unsupported recurrence value, combination, or target integer range.
@@ -3244,7 +3189,7 @@ fn rrule_validator_check_weekday_list(
           NthWeekday(_, _) | EveryWeekday(_) -> Ok(Nil)
         }
       })
-      |> result.replace(values)
+      |> result.replace(Some(list.unique(items)))
   }
 }
 
@@ -3655,7 +3600,7 @@ fn rrule_validator_parse_positive_int(
   part: RulePart,
   value: String,
 ) -> Result(Int, RruleValidationError) {
-  case int.parse(value) {
+  case parse_digits(value) {
     Error(_) -> Error(RruleInvalidNumber(part, value))
     Ok(number) ->
       case civil_integer_is_exact(number) {
@@ -3701,7 +3646,13 @@ fn rrule_validator_parse_int_items(
   case values {
     [] -> Ok(list.unique(list.sort(acc, by: int.compare)))
     [value, ..rest] ->
-      case int.parse(value) {
+      // Only BYMONTHDAY, the list that rejects zero, has signed values.
+      case
+        case reject_zero {
+          True -> int.parse(value)
+          False -> parse_digits(value)
+        }
+      {
         Error(_) -> Error(RruleInvalidNumber(part: part, value: value))
         Ok(number) ->
           case
@@ -3745,7 +3696,7 @@ fn rrule_validator_collect_weekdays(
   original: String,
 ) -> Result(List(WeekdaySpecifier), RruleValidationError) {
   case values {
-    [] -> Ok(list.reverse(acc))
+    [] -> Ok(list.unique(list.reverse(acc)))
     [value, ..rest] ->
       case rrule_validator_parse_weekday_specifier(value) {
         Ok(item) ->
@@ -3926,7 +3877,25 @@ fn rrule_validator_parse_fixed_int(
   start: Int,
   length: Int,
 ) -> Result(Int, Nil) {
-  int.parse(string.slice(from: value, at_index: start, length: length))
+  let text = string.slice(from: value, at_index: start, length: length)
+  case string.length(text) == length {
+    True -> parse_digits(text)
+    False -> Error(Nil)
+  }
+}
+
+// Parse one or more ASCII digits. int.parse alone also accepts a sign, which
+// cron fields, RRULE counts, and date-time digits do not allow.
+fn parse_digits(text: String) -> Result(Int, Nil) {
+  case
+    text != ""
+    && list.all(string.to_graphemes(text), fn(digit) {
+      string.contains("0123456789", digit)
+    })
+  {
+    True -> int.parse(text)
+    False -> Error(Nil)
+  }
 }
 
 fn rrule_validator_append_int_part(
@@ -4507,9 +4476,10 @@ pub type IcalUnknownComponent {
   )
 }
 
-fn ical_validate_unchecked(
-  raw: IcalRawCalendar,
-) -> Result(IcalCalendar, IcalError) {
+/// Interpret a raw calendar as typed components and preserved unknown components.
+///
+/// Check required properties and supported date, integer, escape, and RRULE syntax. RRULE values remain raw rules; this step does not validate them for scheduling. Keep DATE, floating, UTC, TZID, and parameter forms for later encoding. This is not a complete RFC conformance check.
+pub fn ical_validate(raw: IcalRawCalendar) -> Result(IcalCalendar, IcalError) {
   let IcalRawCalendar(properties: properties, components: components) = raw
   case ical_validator_find_value(properties, "VERSION") {
     None -> Error(IcalMissingVersion)
@@ -4890,7 +4860,7 @@ fn ical_validator_parse_event_rrule(
   case ical_validator_collect_values(props, "RRULE") {
     [] -> Ok(None)
     [single] ->
-      case rrule_parse(input: single) {
+      case rrule_parse_raw(input: single) {
         Ok(parsed) -> Ok(Some(parsed))
         Error(err) -> Error(IcalInvalidRRule(raw: single, error: err))
       }
@@ -5762,40 +5732,6 @@ fn ical_validator_do_parse_datetime_list(
         Ok(dt) -> ical_validator_do_parse_datetime_list(name, rest, [dt, ..acc])
       }
   }
-}
-
-fn ical_validator_calendar_forms(
-  cal: IcalCalendar,
-) -> Dict(String, PropertyForm) {
-  cal.forms
-}
-
-fn ical_validator_timezone_forms(
-  tz: IcalTimezone,
-) -> Dict(String, PropertyForm) {
-  tz.forms
-}
-
-fn ical_validator_event_forms(event: IcalEvent) -> Dict(String, PropertyForm) {
-  event.forms
-}
-
-fn ical_validator_todo_forms(t: IcalTodo) -> Dict(String, PropertyForm) {
-  t.forms
-}
-
-fn ical_validator_journal_forms(j: IcalJournal) -> Dict(String, PropertyForm) {
-  j.forms
-}
-
-fn ical_validator_freebusy_forms(
-  fb: IcalFreeBusy,
-) -> Dict(String, PropertyForm) {
-  fb.forms
-}
-
-fn ical_validator_alarm_forms(alarm: IcalAlarm) -> Dict(String, PropertyForm) {
-  alarm.forms
 }
 
 /// Read VERSION from the calendar.
@@ -7044,7 +6980,27 @@ pub fn ical_with_alarm_x_property(
   )
 }
 
-fn ical_emitter_encode(cal: IcalCalendar) -> Result(String, IcalEncodeError) {
+/// Encode a calendar with CRLF endings and folding at 75 UTF-8 bytes per physical line.
+///
+/// Check typed dates, representable years, and rendered logical lines in emission order, returning the first error. Dates must be real whole-second civil values, including fields emitted as DATE. Wire years range from -999 through 9999; negative years use the parser's existing sign-plus-three-digits form. A raw line containing CR or LF is rejected.
+///
+/// Normalize CRLF and bare CR in typed TEXT to LF before escaping it. Getters continue to return the stored text; encoding and parsing can therefore normalize line endings. Preserve parsed raw-text handling and DATE/floating/UTC/TZID forms unless an update replaced them. This does not perform timezone conversion or complete RFC validation.
+///
+/// Emit component groups in timezone, event, task, journal, free/busy, unknown order, retaining order within each group. Folding includes the continuation space in its byte limit.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let calendar = ical_new_calendar("2.0", "example")
+/// let assert Ok(wire) = ical_encode(calendar)
+/// let assert Ok(_) = ical_parse(wire)
+///
+/// ical_new_calendar("2.0", "example")
+/// |> ical_with_method("PUBLISH\nOTHER")
+/// |> ical_encode
+/// // Error(IcalPhysicalNewline("METHOD:PUBLISH\nOTHER"))
+/// ```
+pub fn ical_encode(cal: IcalCalendar) -> Result(String, IcalEncodeError) {
   use lines <- result.try(list.try_map(
     ical_emitter_render_calendar(cal),
     ical_emit_line,
@@ -7057,7 +7013,7 @@ fn ical_emitter_encode(cal: IcalCalendar) -> Result(String, IcalEncodeError) {
 }
 
 fn ical_emitter_render_calendar(cal: IcalCalendar) -> List(IcalEmission) {
-  let forms = ical_validator_calendar_forms(cal)
+  let forms = cal.forms
   let header = [
     IcalLine("BEGIN:VCALENDAR"),
     ical_emitter_property(forms, "VERSION", ical_version(cal)),
@@ -7115,7 +7071,7 @@ fn ical_emitter_render_x_properties(
 }
 
 fn ical_emitter_render_event(event: IcalEvent) -> List(IcalEmission) {
-  let forms = ical_validator_event_forms(event)
+  let forms = event.forms
   let header = [
     IcalLine("BEGIN:VEVENT"),
     ical_emitter_property(forms, "UID", ical_event_uid(event)),
@@ -7229,7 +7185,7 @@ fn ical_emitter_render_event(event: IcalEvent) -> List(IcalEmission) {
 }
 
 fn ical_emitter_render_todo(t: IcalTodo) -> List(IcalEmission) {
-  let forms = ical_validator_todo_forms(t)
+  let forms = t.forms
   let header = [
     IcalLine("BEGIN:VTODO"),
     ical_emitter_property(forms, "UID", ical_todo_uid(t)),
@@ -7306,7 +7262,7 @@ fn ical_emitter_render_todo(t: IcalTodo) -> List(IcalEmission) {
 }
 
 fn ical_emitter_render_journal(j: IcalJournal) -> List(IcalEmission) {
-  let forms = ical_validator_journal_forms(j)
+  let forms = j.forms
   let header = [
     IcalLine("BEGIN:VJOURNAL"),
     ical_emitter_property(forms, "UID", ical_journal_uid(j)),
@@ -7346,7 +7302,7 @@ fn ical_emitter_render_journal(j: IcalJournal) -> List(IcalEmission) {
 }
 
 fn ical_emitter_render_freebusy(fb: IcalFreeBusy) -> List(IcalEmission) {
-  let forms = ical_validator_freebusy_forms(fb)
+  let forms = fb.forms
   let header = [
     IcalLine("BEGIN:VFREEBUSY"),
     ical_emitter_property(forms, "UID", ical_freebusy_uid(fb)),
@@ -7387,7 +7343,7 @@ fn ical_emitter_render_freebusy(fb: IcalFreeBusy) -> List(IcalEmission) {
 }
 
 fn ical_emitter_render_timezone(tz: IcalTimezone) -> List(IcalEmission) {
-  let forms = ical_validator_timezone_forms(tz)
+  let forms = tz.forms
   let header = [
     IcalLine("BEGIN:VTIMEZONE"),
     ical_emitter_property(forms, "TZID", ical_timezone_tzid(tz)),
@@ -7443,7 +7399,7 @@ fn ical_emitter_render_timezone_rule(
   ) = rule
   let start_form = case dict.get(forms, "DTSTART") {
     Ok(form) -> form
-    Error(Nil) -> PropertyForm(..ical_emitter_default_form(), utc: False)
+    Error(Nil) -> PropertyForm(..ical_validator_utc_form, utc: False)
   }
   let header = [
     IcalLine("BEGIN:" <> kind),
@@ -7465,7 +7421,7 @@ fn ical_emitter_render_timezone_rule(
 }
 
 fn ical_emitter_render_alarm(alarm: IcalAlarm) -> List(IcalEmission) {
-  let forms = ical_validator_alarm_forms(alarm)
+  let forms = alarm.forms
   let header = [
     IcalLine("BEGIN:VALARM"),
     ical_emitter_property(forms, "ACTION", ical_alarm_action(alarm)),
@@ -7535,7 +7491,7 @@ fn ical_emitter_render_raw_component(
 fn ical_emitter_render_raw_property(prop: IcalRawProperty) -> IcalEmission {
   let IcalRawProperty(name: name, parameters: params, raw_value: value, ..) =
     prop
-  IcalLine(name <> ical_emitter_render_parameters(params) <> ":" <> value)
+  IcalPropertyLine(name, params, value)
 }
 
 fn ical_emitter_quote_param_if_needed(value: String) -> String {
@@ -7553,11 +7509,7 @@ fn ical_emitter_form_of(
   forms: Dict(String, PropertyForm),
   name: String,
 ) -> PropertyForm {
-  dict.get(forms, name) |> result.unwrap(ical_emitter_default_form())
-}
-
-fn ical_emitter_default_form() -> PropertyForm {
-  PropertyForm(parameters: [], utc: True, date_only: False, raw_text: False)
+  dict.get(forms, name) |> result.unwrap(ical_validator_utc_form)
 }
 
 fn ical_emitter_property(
@@ -7565,14 +7517,7 @@ fn ical_emitter_property(
   name: String,
   value: String,
 ) -> IcalEmission {
-  IcalLine(
-    name
-    <> ical_emitter_render_parameters(
-      ical_emitter_form_of(forms, name).parameters,
-    )
-    <> ":"
-    <> value,
-  )
+  IcalPropertyLine(name, ical_emitter_form_of(forms, name).parameters, value)
 }
 
 fn ical_emitter_raw_text_property(
@@ -7677,13 +7622,11 @@ fn ical_emitter_group_by_form(
   }
 }
 
-fn ical_emitter_format_dt_values(
+fn ical_emitter_dt_parameters(
   form: PropertyForm,
-  name: String,
-  values: List(DateTime),
   tzid_opt: Option(String),
-) -> String {
-  let params = case tzid_opt {
+) -> List(IcalParameter) {
+  case tzid_opt {
     None -> form.parameters
     Some(tzid) -> [
       IcalParameter(name: "TZID", value: tzid),
@@ -7692,6 +7635,14 @@ fn ical_emitter_format_dt_values(
       })
     ]
   }
+}
+
+fn ical_emitter_format_dt_values(
+  form: PropertyForm,
+  name: String,
+  values: List(DateTime),
+  params: List(IcalParameter),
+) -> String {
   let is_date =
     form.date_only
     || list.any(params, fn(p) {
@@ -7721,11 +7672,7 @@ fn ical_emitter_render_lines(
 ) -> List(IcalEmission) {
   values
   |> list.reverse
-  |> list.map(fn(pair) {
-    IcalLine(
-      name <> ical_emitter_render_parameters(pair.1.parameters) <> ":" <> pair.0,
-    )
-  })
+  |> list.map(fn(pair) { IcalPropertyLine(name, pair.1.parameters, pair.0) })
 }
 
 fn ical_emitter_render_categories(
@@ -7736,11 +7683,10 @@ fn ical_emitter_render_categories(
   |> list.map(fn(pair) { #(pair.1, pair.0) })
   |> ical_emitter_group_by_form([])
   |> list.map(fn(group) {
-    IcalLine(
-      "CATEGORIES"
-      <> ical_emitter_render_parameters(group.0.parameters)
-      <> ":"
-      <> string.join(list.map(group.1, ical_emitter_escape_text), ","),
+    IcalPropertyLine(
+      "CATEGORIES",
+      group.0.parameters,
+      string.join(list.map(group.1, ical_emitter_escape_text), ","),
     )
   })
 }
@@ -7852,9 +7798,10 @@ fn ical_emitter_utf8_byte_length(cp: UtfCodepoint) -> Int {
   }
 }
 
-fn ical_parse_raw_unchecked(
-  input: String,
-) -> Result(IcalRawCalendar, IcalError) {
+/// Read an iCalendar document into a raw property/component tree.
+///
+/// Unfold continuation lines and retain property parameters, raw values, and line positions. Accept CRLF, LF, and bare CR physical line endings. Remove one leading BOM only; preserve U+FEFF elsewhere. Typed component requirements are checked separately by `ical_validate`.
+pub fn ical_parse_raw(input: String) -> Result(IcalRawCalendar, IcalError) {
   use logical_lines <- result.try(
     ical_lexer_unfold(input)
     |> result.map_error(ical_parser_lex_error_to_parse_error),
@@ -8429,12 +8376,13 @@ pub type ScheduleError {
   ScheduleNumericOverflow
 }
 
-/// A typed date, year representation, or physical-newline error during encoding.
+/// A typed date, year representation, parameter value, or physical-newline error during encoding.
 ///
-/// Errors follow logical emission order. Date validation precedes wire-year validation for a date field; a completed logical line is then checked for raw CR or LF.
+/// Errors follow logical emission order. Date validation precedes wire-year validation for a date field. Parameter values cannot contain DQUOTE. A completed logical line is then checked for raw CR or LF.
 pub type IcalEncodeError {
   IcalInvalidDateValue(property: String, value: DateTime, error: DateTimeError)
   IcalYearNotRepresentable(property: String, year: Int)
+  IcalInvalidParameterValue(property: String, parameter: String, value: String)
   IcalPhysicalNewline(logical_line: String)
 }
 
@@ -8564,7 +8512,7 @@ pub fn schedule_every(
 
 /// Check whether the schedule matches a validated civil time.
 ///
-/// Cron matching uses the minute and ignores the seconds field, while cron iteration emits second zero. Recurrence COUNT is measured from the original anchor. Return a search-limit or numeric error if the answer cannot be determined within the supported computation limits.
+/// Cron matching uses the minute and ignores the seconds field, while cron iteration emits second zero. An iterator whose boundary has nonzero seconds therefore starts after the boundary's minute even when that minute matches. Recurrence COUNT is measured from the original anchor. Return a search-limit or numeric error if the answer cannot be determined within the supported computation limits.
 pub fn schedule_matches(
   schedule: Schedule,
   at at: ValidDateTime,
@@ -8657,24 +8605,6 @@ pub fn event_occurred_between(
 ) -> Bool {
   internal_calendar_greater_or_equal(event.occurred_at.value, from.value)
   && internal_calendar_less_or_equal(event.occurred_at.value, until.value)
-}
-
-/// Read an iCalendar document into a raw property/component tree.
-///
-/// Unfold continuation lines and retain property parameters, raw values, and line positions. Accept CRLF, LF, and bare CR physical line endings. Remove one leading BOM only; preserve U+FEFF elsewhere. Typed component requirements are checked separately by `ical_validate`.
-pub fn ical_parse_raw(input: String) -> Result(IcalRawCalendar, IcalError) {
-  ical_parse_raw_unchecked(input)
-}
-
-/// Interpret a raw calendar as typed components and preserved unknown components.
-///
-/// Check required properties and supported date, integer, escape, and RRULE syntax. RRULE values remain raw rules; this step does not validate them for scheduling. Keep DATE, floating, UTC, TZID, and parameter forms for later encoding. This is not a complete RFC conformance check.
-pub fn ical_validate(raw: IcalRawCalendar) -> Result(IcalCalendar, IcalError) {
-  ical_validate_unchecked(raw)
-}
-
-fn retry_milliseconds(value: Int) -> duration.Duration {
-  duration.milliseconds(value)
 }
 
 // A day and second within a 400-year Gregorian era. Keeping the era separate
@@ -8959,16 +8889,10 @@ fn recurrence_period_start(
   let date = civil_cycle_date(position)
   case plan.frequency {
     Secondly -> position
-    Minutely ->
-      civil_position_add_seconds(
-        position,
-        0 - civil_seconds_modulo(plan.anchor, value, 60),
-      )
-    Hourly ->
-      civil_position_add_seconds(
-        position,
-        0 - civil_seconds_modulo(plan.anchor, value, 3600),
-      )
+    // RFC 5545 sub-daily periods are clock minutes and hours. BYSECOND and
+    // BYMINUTE values select instants inside them.
+    Minutely -> CivilPosition(..position, second: position.second / 60 * 60)
+    Hourly -> CivilPosition(..position, second: position.second / 3600 * 3600)
     Daily -> CivilPosition(..position, second: 0)
     Weekly ->
       civil_add_days_to_position(
@@ -9150,7 +9074,9 @@ fn recurrence_find(
     True -> plan.anchor
     False -> target
   }
-  case recurrence_after_until(plan, civil_position(target)) {
+  case
+    !plan.time_reachable || recurrence_after_until(plan, civil_position(target))
+  {
     True -> Ok(#(None, budget))
     False -> {
       let start = recurrence_period_start(plan, target)
@@ -9549,21 +9475,43 @@ fn retry_admit_duration(value: duration.Duration) -> Result(Nil, RetryError) {
 
 type IcalEmission {
   IcalLine(String)
+  IcalPropertyLine(String, List(IcalParameter), String)
   IcalDateLine(PropertyForm, String, List(DateTime), Option(String))
 }
 
 fn ical_emit_line(emission: IcalEmission) -> Result(String, IcalEncodeError) {
   use line <- result.try(case emission {
     IcalLine(line) -> Ok(line)
+    IcalPropertyLine(name, params, value) -> {
+      use Nil <- result.try(ical_admit_parameters(name, params))
+      Ok(name <> ical_emitter_render_parameters(params) <> ":" <> value)
+    }
     IcalDateLine(form, name, values, tzid) -> {
       use Nil <- result.try(list.try_each(values, ical_admit_date(name, _)))
-      Ok(ical_emitter_format_dt_values(form, name, values, tzid))
+      let params = ical_emitter_dt_parameters(form, tzid)
+      use Nil <- result.try(ical_admit_parameters(name, params))
+      Ok(ical_emitter_format_dt_values(form, name, values, params))
     }
   })
   case string.contains(line, "\r") || string.contains(line, "\n") {
     True -> Error(IcalPhysicalNewline(line))
     False -> Ok(line)
   }
+}
+
+// A parameter value has no escape mechanism for DQUOTE, so such a value
+// cannot be written in a form that parses again.
+fn ical_admit_parameters(
+  property: String,
+  params: List(IcalParameter),
+) -> Result(Nil, IcalEncodeError) {
+  list.try_each(params, fn(param) {
+    case string.contains(param.value, "\"") {
+      True ->
+        Error(IcalInvalidParameterValue(property, param.name, param.value))
+      False -> Ok(Nil)
+    }
+  })
 }
 
 fn ical_admit_date(
@@ -9742,11 +9690,9 @@ fn recurrence_matches(
       case plan.end_condition {
         Forever | Until(_) -> Ok(True)
         Count(limit) -> {
-          use #(count, _) <- result.try(recurrence_count_before(
+          use #(count, _) <- result.try(recurrence_count_from_anchor(
             plan,
             Inclusive(at),
-            Inclusive(ValidDateTime(plan.anchor)),
-            0,
             limit,
             SearchBudget(1_000_000),
           ))
@@ -9767,15 +9713,7 @@ fn recurrence_initial_count(
       case civil_position_compare(target, civil_position(plan.anchor)) {
         Lt -> Ok(#(0, budget))
         Eq if !exclusive -> Ok(#(0, budget))
-        Eq | Gt ->
-          recurrence_count_before(
-            plan,
-            boundary,
-            Inclusive(ValidDateTime(plan.anchor)),
-            0,
-            limit,
-            budget,
-          )
+        Eq | Gt -> recurrence_count_from_anchor(plan, boundary, limit, budget)
       }
     }
     Forever | Until(_) -> Ok(#(0, budget))
@@ -9862,11 +9800,8 @@ fn recurrence_after_scan(
         True -> Ok(SearchFinished(None, scan.budget))
         False -> {
           use budget <- result.try(search_spend(scan.budget))
-          Ok(SearchContinue(
-            civil_shift_period(start, plan.frequency, plan.interval),
-            empty_periods,
-            budget,
-          ))
+          let #(next, periods) = recurrence_next_period(plan, start)
+          Ok(SearchContinue(next, empty_periods + periods - 1, budget))
         }
       }
     }
@@ -10110,6 +10045,121 @@ fn recurrence_subdaily_difference(
   last: CivilPosition,
   unit: Int,
 ) -> #(Int, Int, Int) {
-  let local = { last.day - first.day } * 86_400 + last.second - first.second
-  #(last.era - first.era, civil_divmod(local, unit).0, 12_622_780_800 / unit)
+  let local =
+    { last.day - first.day }
+    * { 86_400 / unit }
+    + last.second
+    / unit
+    - first.second
+    / unit
+  #(last.era - first.era, local, 12_622_780_800 / unit)
+}
+
+fn recurrence_subdaily_unit(frequency: Frequency) -> Option(Int) {
+  case frequency {
+    Secondly -> Some(1)
+    Minutely -> Some(60)
+    Hourly -> Some(3600)
+    Daily | Weekly | Monthly | Yearly -> None
+  }
+}
+
+// Return the next period to inspect and how many interval steps it skips.
+// Sub-daily rules jump over periods that contain no instant allowed by the
+// day, hour, minute, and second filters.
+fn recurrence_next_period(
+  plan: RecurrencePlan,
+  start: CivilPosition,
+) -> #(CivilPosition, Int) {
+  let periods = case recurrence_subdaily_unit(plan.frequency) {
+    Some(unit) if plan.interval <= 2 * 86_400 / unit -> {
+      // The next candidate is at least one period away, so the gap is
+      // never shorter than the unit.
+      let bound =
+        recurrence_candidate_bound(
+          plan,
+          civil_position_add_seconds(start, unit),
+        )
+      let gap =
+        { bound.era - start.era }
+        * 12_622_780_800
+        + { bound.day - start.day }
+        * 86_400
+        + bound.second
+        - start.second
+      { gap - unit } / { plan.interval * unit } + 1
+    }
+    _ -> 1
+  }
+  #(civil_shift_period(start, plan.frequency, periods * plan.interval), periods)
+}
+
+// The first instant at or after `from` allowed by the filters on the same
+// day, or the start of the next day.
+fn recurrence_candidate_bound(
+  plan: RecurrencePlan,
+  from: CivilPosition,
+) -> CivilPosition {
+  let next_day = CivilPosition(..civil_add_days_to_position(from, 1), second: 0)
+  case rrule_evaluator_day_matches(plan, civil_cycle_date(from)) {
+    False -> next_day
+    True ->
+      case
+        recurrence_first_time(
+          plan.by_hour,
+          plan.by_minute,
+          plan.seconds,
+          from.second,
+          86_400,
+        )
+      {
+        Some(second) -> CivilPosition(..from, second: second)
+        None -> next_day
+      }
+  }
+}
+
+// Sub-daily periods start at a fixed set of times of day. A rule whose
+// filters select no instant in any of those periods has no occurrences.
+fn recurrence_time_reachable(
+  frequency: Frequency,
+  interval: Int,
+  anchor: DateTime,
+  by_hour: List(Int),
+  by_minute: List(Int),
+  seconds: List(Int),
+) -> Bool {
+  case recurrence_subdaily_unit(frequency) {
+    None -> True
+    Some(unit) -> {
+      let phase = recurrence_gcd(86_400, interval % { 86_400 / unit } * unit)
+      let anchor_second =
+        anchor.time.hours
+        * 3600
+        + anchor.time.minutes
+        * 60
+        + anchor.time.seconds
+      let first = anchor_second / unit * unit
+      let in_phase = fn(at) {
+        civil_divmod(at / unit * unit - first, phase).1 == 0
+      }
+      list.any(by_hour, fn(hour) {
+        list.any(by_minute, recurrence_minute_in_phase(
+          hour,
+          _,
+          seconds,
+          in_phase,
+        ))
+      })
+    }
+  }
+}
+
+fn recurrence_minute_in_phase(
+  hour: Int,
+  minute: Int,
+  seconds: List(Int),
+  in_phase: fn(Int) -> Bool,
+) -> Bool {
+  list.any(seconds, fn(second) { in_phase(hour * 3600 + minute * 60 + second) })
 }
