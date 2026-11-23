@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Breaking: consolidate the public API into `automata`. Remove the public `automata/cron`, `automata/rrule`, `automata/schedule`, `automata/event`, `automata/fsevent`, `automata/ical`, and `automata/retry` module families, their phase modules, and re-export aliases. Keep finite automata, cron, all seven recurrence frequencies, civil schedules, generic and built-in events, filesystem snapshots/differences, every supported iCalendar component, and retries.
+- Breaking: expose `Automaton`, `Event`, `Metadata`, `Source`, `CronOptions`, `RecurrenceOptions`, and `IcalTimezoneRule` as records. Remove `new`, `initial_state`, and `step` from the finite-automaton API; construct the record, read its field, or call its transition callback. Keep `run` and `accepts`.
+- Breaking: replace cron and recurrence builders and their `with_*` setters with options records, `cron_new`, and `rrule_new`. Construct `CronSelector`, `CronItem`, `CronStepBase`, `WeekdaySpecifier`, and end-condition variants directly instead of the `any`, `at`, `between`, `every*`, `item_*`, `one_of`, `weekday`, and `nth_weekday` wrappers. `cron_to_options` and `rrule_to_options` replace separate validated-field getters. `cron_parse_raw`/`cron_validate` and `rrule_parse_raw`/`rrule_validate` retain separate syntax and validation errors.
+- Breaking: remove `CronError`, `next_after_string`, public `CronPlan`/`RRulePlan`, `IntSet`, normalization helpers, selector expansion, evaluator helpers, and the `*_plan` operations. Schedules keep their compiled lookup data privately. Parse, validation, and search errors can be combined by a caller-owned error type when needed.
+- Breaking: use one `Schedule` and `OccurrenceIterator` API for cron, RRULE, fixed intervals, and one-shot occurrences. Replace domain-specific `matches`, `iterator_after`, `next_after`, and `step` variants with `schedule_matches`, `schedule_iterator`, `schedule_next`, and `schedule_step`. These operations return `Result`; an exhausted sequence is distinct from a search-work or numeric-range failure. `schedule_next` is exclusive; iterator boundaries can be inclusive or exclusive.
+- Breaking: use gleam_time `Date`, `Month`, `TimeOfDay`, `DayOfWeek`, and `Duration` directly. Remove the local `Date`, `Time`, `Weekday`, retry `Duration`, and `Attempt` aliases/wrappers. Construct a civil `DateTime` and call `datetime_validate`; `datetime_value` reads it and `datetime_to_string` formats a validated value. TimeOfDay uses `hours`, `minutes`, `seconds`, and `nanoseconds`; scheduling requires zero nanoseconds. Remove `unsafe_assume_valid`, the raw `to_string` formatter, and redundant `try_datetime`/`try_valid_datetime` constructors.
+- Breaking: replace event filter/matcher DSLs with ordinary predicates, `list.filter`, direct record inspection, and core collection operations. Remove `Filter`, `BuiltinEvent`, `Attributes`, metadata/source/body construction wrappers, and mechanical event/metadata setters. Use `Event(EventBody)` for built-in bodies, `builtin_event` for source derivation, and `event_continue_from` for metadata inheritance. Generic events still accept arbitrary body types.
+- Breaking: replace filesystem `Watch` and its wrappers with `Set(Op)`. `diff_snapshots` takes the observed operation set explicitly; `all_ops` selects all five operations. Use `filesystem_event` with a set instead of `created`, `written`, `removed`, `renamed`, `chmoded`, or `multi_op`. Use core set operations and record/value equality instead of set wrappers and `path_equals`. Keep validated paths, entries, snapshots, and events, with their canonical operations in the root module.
+- Breaking: prefix iCalendar operations with `ical_` and component types with `Ical`. Keep all component getters and setters that maintain stored values and wire forms. Replace `new_timezone_rule`, `with_timezone_rule_rrule`, and `with_timezone_rule_name` with `IcalTimezoneRule` record construction/updates. Consolidate parse/validation errors into `IcalError`; nested RRULE syntax errors remain typed. Lexer, line-folding, and escaping helpers are private.
+- Breaking: `ical_encode` now returns `Result(String, IcalEncodeError)`. Validate typed dates and zero nanoseconds, reject wire years outside -999 through 9999, and reject raw CR/LF in rendered logical lines. Check errors in emission order. Typed TEXT normalizes CRLF and bare CR to LF while encoding; getters preserve the supplied text. Parsed DATE, floating, UTC, TZID, raw-text, and property-parameter forms remain supported.
+- Breaking: use `retry_*` operations and the root `RetryPolicy`, `RetryContext`, and `RetryDecision` types. Policies consume core Duration values and reject fractional milliseconds instead of truncating them. Duration errors carry normalized seconds/nanoseconds pairs. Remove `capped_exponential_ms`, local duration conversion/constructor wrappers, `should_retry`, and `next_delay`; construct a core Duration and inspect `RetryDecision`. Preserve seeded jitter, caps, cumulative overflow, permanent-failure priority, and total-attempt limits.
+- Accumulate repeated iCalendar values together with their forms, using prepend/reverse so building long lists is linear. Preserve repeated-value order, adjacent form grouping, scalar first-wins behavior, extension-property last-wins behavior, and same-value setter resets.
+
+```gleam
+// Before: import automata/cron
+let spec = cron.builder()
+  |> cron.with_minute(cron.at(15))
+  |> cron.build
+
+// After: import automata
+let options = automata.cron_options()
+let spec = automata.cron_new(automata.CronOptions(
+  ..options,
+  minute: automata.CronValues([automata.CronExact(15)]),
+))
+```
+
+### Fixed
+
+- Return a typed RRULE validation error for out-of-range months in raw UNTIL dates and date-times.
+
+- Keep embedded U+FEFF in iCalendar text, parameters, and unknown components. Only one BOM at the start of the document is removed.
+- Search aligned recurrence periods directly, so valid distant occurrences such as an 11,000-year interval are not mistaken for the end of a sequence. Preserve COUNT from the original anchor, including matching and queries starting later in the sequence. Distinguish a proven empty cycle from an exhausted search budget.
+- Compute fixed intervals and civil arithmetic using exact calendar-cycle components. Avoid walking one day at a time for large intervals and preserve one-second differences near JavaScript's safe-year boundaries. Erlang continues to support arbitrary-precision civil years.
+- Prevent unchecked public cron plans and selector helpers from producing invalid validated dates, hanging on empty selectors, or recursing forever for a zero step. Public typed constructors continue to reject these invalid values.
+- Validate every typed date field during iCalendar encoding, preserve the parser's supported signed four-character year forms in a reparseable spelling, and reject physical-newline injection in non-TEXT fields and raw component/property data.
+
+### Documentation
+
+- Rewrite the README and public comments around the root API, civil-time semantics, explicit search failures, retry decisions, and preserved iCalendar forms. Move release verification to CONTRIBUTING.md and distinguish local checks from the CI matrix and historical mutation measurements.
+
 ## [0.13.0] - 2026-11-22
 
 ### Changed

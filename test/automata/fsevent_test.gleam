@@ -1,32 +1,27 @@
-import automata/fsevent
-import automata/fsevent/ast.{Create, EmptyPath, Write}
-import automata/fsevent/entry
-import automata/fsevent/event
-import automata/fsevent/path
-import automata/fsevent/snapshot
-import automata/fsevent/watch
+import automata as a
 import gleam/option.{None}
+import gleam/set
 import gleeunit/should
 
 pub fn facade_normalize_round_trip_test() {
-  let assert Ok(p) = fsevent.normalize(path: "/var/log/")
-  path.path_to_string(p) |> should.equal("/var/log")
+  let assert Ok(p) = a.path_normalize(path: "/var/log/")
+  a.path_to_string(path: p) |> should.equal("/var/log")
 }
 
 pub fn facade_normalize_propagates_errors_test() {
-  fsevent.normalize(path: "") |> should.equal(Error(EmptyPath))
+  a.path_normalize(path: "") |> should.equal(Error(a.EmptyPath))
 }
 
 pub fn facade_watch_is_default_watch_test() {
-  let w = fsevent.watch()
-  watch.watch_observes(watch: w, op: Create) |> should.equal(True)
-  watch.watch_observes(watch: w, op: Write) |> should.equal(True)
+  let w = old_fsevent_watch()
+  old_fsevent_watch_watch_observes(watch: w, op: a.Create) |> should.equal(True)
+  old_fsevent_watch_watch_observes(watch: w, op: a.Write) |> should.equal(True)
 }
 
 pub fn facade_diff_smoke_test() {
-  let assert Ok(target_path) = fsevent.normalize(path: "/tmp/a")
+  let assert Ok(target_path) = a.path_normalize(path: "/tmp/a")
   let assert Ok(e1) =
-    entry.entry_file(
+    a.entry_file(
       path: target_path,
       size: 10,
       mtime: 1,
@@ -35,7 +30,7 @@ pub fn facade_diff_smoke_test() {
       file_id: None,
     )
   let assert Ok(e2) =
-    entry.entry_file(
+    a.entry_file(
       path: target_path,
       size: 10,
       mtime: 2,
@@ -43,10 +38,34 @@ pub fn facade_diff_smoke_test() {
       content_hash: None,
       file_id: None,
     )
-  let assert Ok(prev) = snapshot.from_entries(entries: [e1])
-  let assert Ok(curr) = snapshot.from_entries(entries: [e2])
-  let assert [ev] = fsevent.diff(prev: prev, curr: curr, watch: fsevent.watch())
-  event.event_has(event: ev, op: Write) |> should.equal(True)
-  path.path_to_string(event.event_path(event: ev))
+  let assert Ok(prev) = a.snapshot_from_entries(entries: [e1])
+  let assert Ok(curr) = a.snapshot_from_entries(entries: [e2])
+  let assert [ev] =
+    old_fsevent_diff(prev: prev, curr: curr, watch: old_fsevent_watch())
+  old_fsevent_event_event_has(event: ev, op: a.Write) |> should.equal(True)
+  a.path_to_string(path: a.filesystem_event_path(event: ev))
   |> should.equal("/tmp/a")
+}
+
+fn old_fsevent_diff(
+  prev prev: a.Snapshot,
+  curr curr: a.Snapshot,
+  watch watch: set.Set(a.Op),
+) -> List(a.WatchEvent) {
+  a.diff_snapshots(prev, curr, observing: watch)
+}
+
+fn old_fsevent_event_event_has(event event: a.WatchEvent, op op: a.Op) -> Bool {
+  set.contains(a.filesystem_event_ops(event: event), op)
+}
+
+fn old_fsevent_watch() -> set.Set(a.Op) {
+  a.all_ops()
+}
+
+fn old_fsevent_watch_watch_observes(
+  watch watch: set.Set(a.Op),
+  op op: a.Op,
+) -> Bool {
+  set.contains(watch, op)
 }

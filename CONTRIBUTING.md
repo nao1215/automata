@@ -4,7 +4,7 @@
 
 You need the following tools installed:
 
-- [Gleam](https://gleam.run/) 1.14+ (`.mise.toml` pins the version CI uses for formatting)
+- [Gleam](https://gleam.run/) 1.14+ (`.mise.toml` pins the local toolchain; CI formatting uses the latest Gleam 1.x)
 - Erlang/OTP 27+ (CI tests 27 and 29)
 - Node.js 22+ (for JavaScript-target checks)
 - [just](https://github.com/casey/just) as a task runner
@@ -43,6 +43,25 @@ JavaScript-target build/test. Individual commands:
 | `just test-erlang` / `just test-javascript` | Per-target test |
 | `just docs` | Build HexDocs HTML |
 | `just clean` | Delete `build/` |
+
+See [doc/testing.md](https://github.com/nao1215/automata/blob/main/doc/testing.md) for test coverage, independent oracles, and the scope of historical mutation runs.
+
+## Verifying releases
+
+Each GitHub Release attaches the Hex package tarball (`automata-<version>.tar`),
+`checksums.txt`, a cosign signature bundle (`checksums.txt.sigstore.json`) and
+build provenance (`automata-<version>.intoto.jsonl`). Download the assets, then:
+
+```sh
+gh attestation verify automata-<version>.tar --repo nao1215/automata
+
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/nao1215/automata/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --check checksums.txt
+```
 
 ## Code style
 
