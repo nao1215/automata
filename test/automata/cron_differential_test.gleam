@@ -15,11 +15,14 @@
 //// POSIX "either field" rule is the classic source of cron bugs, month
 //// ends (29, 30, 31) and leap days.
 
-import automata/cron
-import automata/cron/iterator as cron_iterator
-import automata/internal/calendar
-import automata/internal/gregorian
-import automata/schedule/ast as schedule_ast
+import automata as a
+import gleam/list
+import gleam/order
+import gleam/result
+import gleam/time/calendar
+import gleam/time/duration
+import gleam/time/timestamp
+
 import gleam/int
 import gleam/option.{None, Some}
 import gleam/string
@@ -42,7 +45,7 @@ fn expression_generator() -> Generator(String) {
   )
 }
 
-fn start_generator() -> Generator(schedule_ast.ValidDateTime) {
+fn start_generator() -> Generator(a.ValidDateTime) {
   generator.map6(
     generator.int(range.constant(2023, 2028)),
     generator.int(range.constant(1, 12)),
@@ -51,70 +54,48 @@ fn start_generator() -> Generator(schedule_ast.ValidDateTime) {
     generator.int(range.constant(0, 59)),
     generator.element_of([0, 0, 30, 59]),
     fn(year, month, day, hour, minute, second) {
-      let day = int.min(day, gregorian.days_in_month(year, month))
+      let day = int.min(day, old_internal_gregorian_days_in_month(year, month))
       let assert Ok(value) =
-        schedule_ast.try_valid_datetime(
-          year:,
-          month:,
-          day:,
-          hour:,
-          minute:,
-          second:,
-        )
+        make_valid_datetime(year:, month:, day:, hour:, minute:, second:)
       value
     },
   )
 }
 
-fn valid(datetime: schedule_ast.DateTime) -> schedule_ast.ValidDateTime {
-  let schedule_ast.DateTime(
-    date: schedule_ast.Date(year:, month:, day:),
-    time: schedule_ast.Time(hour:, minute:, second:),
-  ) = datetime
-  let assert Ok(value) =
-    schedule_ast.try_valid_datetime(
-      year:,
-      month:,
-      day:,
-      hour:,
-      minute:,
-      second:,
-    )
+fn valid(datetime: a.DateTime) -> a.ValidDateTime {
+  let assert Ok(value) = a.datetime_validate(datetime)
   value
 }
 
 /// `validate` rejects expressions that can never fire (`31` in a
 /// February-only month field); those are outside the relations.
 fn with_valid(raw, check) -> Bool {
-  case cron.validate(raw) {
+  case a.cron_validate(raw: raw) {
     Ok(spec) -> check(spec)
     Error(_) -> True
   }
 }
 
 /// The first whole minute strictly after `start`.
-fn first_candidate(start: schedule_ast.ValidDateTime) -> schedule_ast.DateTime {
-  let value = schedule_ast.valid_datetime_value(start)
+fn first_candidate(start: a.ValidDateTime) -> a.DateTime {
+  let value = a.datetime_value(start)
   let floored =
-    schedule_ast.DateTime(
+    a.DateTime(
       date: value.date,
-      time: schedule_ast.Time(..value.time, second: 0),
+      time: calendar.TimeOfDay(..value.time, seconds: 0),
     )
-  calendar.add_minutes(floored, 1)
+  old_internal_calendar_add_minutes(floored, 1)
 }
 
 /// The first matching minute within `budget` minutes of `from`.
-fn scan(
-  spec,
-  from: schedule_ast.DateTime,
-  budget: Int,
-) -> option.Option(schedule_ast.DateTime) {
+fn scan(spec, from: a.DateTime, budget: Int) -> option.Option(a.DateTime) {
   case budget <= 0 {
     True -> None
     False ->
-      case cron.matches(spec: spec, at: valid(from)) {
+      case matches_cron(spec: spec, at: valid(from)) {
         True -> Some(from)
-        False -> scan(spec, calendar.add_minutes(from, 1), budget - 1)
+        False ->
+          scan(spec, old_internal_calendar_add_minutes(from, 1), budget - 1)
       }
   }
 }
@@ -124,19 +105,21 @@ pub fn next_after_agrees_with_a_minute_by_minute_scan_test() -> Nil {
     generator.tuple2(expression_generator(), start_generator()),
     fn(input) {
       let #(expression, start) = input
-      let assert Ok(raw) = cron.parse(expression)
+      let assert Ok(raw) = a.cron_parse_raw(input: expression)
       use spec <- with_valid(raw)
       let scanned = scan(spec, first_candidate(start), scan_minutes)
-      case cron.next_after(spec: spec, after: start), scanned {
+      case next_cron(spec: spec, after: start), scanned {
         // The scan found a firing in the window: it must be the answer.
-        Some(next), Some(first) ->
-          schedule_ast.valid_datetime_value(next) == first
+        Some(next), Some(first) -> a.datetime_value(next) == first
         // No firing in the window: the answer is matched and later.
         Some(next), None ->
-          cron.matches(spec: spec, at: next)
-          && calendar.greater_than(
-            schedule_ast.valid_datetime_value(next),
-            calendar.add_minutes(first_candidate(start), scan_minutes - 1),
+          matches_cron(spec: spec, at: next)
+          && old_internal_calendar_greater_than(
+            a.datetime_value(next),
+            old_internal_calendar_add_minutes(
+              first_candidate(start),
+              scan_minutes - 1,
+            ),
           )
         None, _ -> False
       }
@@ -149,19 +132,18 @@ pub fn iterator_steps_follow_next_after_test() -> Nil {
     generator.tuple2(expression_generator(), start_generator()),
     fn(input) {
       let #(expression, start) = input
-      let assert Ok(raw) = cron.parse(expression)
+      let assert Ok(raw) = a.cron_parse_raw(input: expression)
       use spec <- with_valid(raw)
-      let iterator =
-        cron.iterator_after(spec: spec, boundary: schedule_ast.Exclusive(start))
-      case cron_iterator.step(iterator) {
-        cron_iterator.Yield(at: first, next: rest) ->
-          case cron_iterator.step(rest) {
-            cron_iterator.Yield(at: second, next: _) ->
-              Some(first) == cron.next_after(spec: spec, after: start)
-              && Some(second) == cron.next_after(spec: spec, after: first)
-            cron_iterator.Done -> False
+      let iterator = iterate_cron(spec: spec, boundary: a.Exclusive(start))
+      case step_schedule(iterator: iterator) {
+        a.Yield(at: first, next: rest) ->
+          case step_schedule(iterator: rest) {
+            a.Yield(at: second, next: _) ->
+              Some(first) == next_cron(spec: spec, after: start)
+              && Some(second) == next_cron(spec: spec, after: first)
+            a.Done -> False
           }
-        cron_iterator.Done -> False
+        a.Done -> False
       }
     },
   )
@@ -174,23 +156,133 @@ pub fn inclusive_boundary_yields_a_matching_start_test() -> Nil {
     generator.tuple2(expression_generator(), start_generator()),
     fn(input) {
       let #(expression, start) = input
-      let assert Ok(raw) = cron.parse(expression)
+      let assert Ok(raw) = a.cron_parse_raw(input: expression)
       use spec <- with_valid(raw)
-      let value = schedule_ast.valid_datetime_value(start)
+      let value = a.datetime_value(start)
       let expected = case
-        value.time.second == 0 && cron.matches(spec: spec, at: start)
+        value.time.seconds == 0 && matches_cron(spec: spec, at: start)
       {
         True -> Some(start)
-        False -> cron.next_after(spec: spec, after: start)
+        False -> next_cron(spec: spec, after: start)
       }
       let first = case
-        cron.iterator_after(spec: spec, boundary: schedule_ast.Inclusive(start))
-        |> cron_iterator.step
+        iterate_cron(spec: spec, boundary: a.Inclusive(start))
+        |> step_schedule
       {
-        cron_iterator.Yield(at: at, next: _) -> Some(at)
-        cron_iterator.Done -> None
+        a.Yield(at: at, next: _) -> Some(at)
+        a.Done -> None
       }
       first == expected
     },
   )
+}
+
+fn iterate_cron(
+  spec spec: a.Cron,
+  boundary boundary: a.Boundary,
+) -> a.OccurrenceIterator {
+  iterate_schedule(schedule: a.schedule_from_cron(spec), boundary: boundary)
+}
+
+fn iterate_schedule(
+  schedule schedule: a.Schedule,
+  boundary boundary: a.Boundary,
+) -> a.OccurrenceIterator {
+  let assert Ok(value) = a.schedule_iterator(schedule, boundary: boundary)
+  value
+}
+
+fn make_time(
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> calendar.TimeOfDay {
+  calendar.TimeOfDay(hour, minute, second, 0)
+}
+
+fn make_valid_datetime(
+  year year: Int,
+  month month: Int,
+  day day: Int,
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> Result(a.ValidDateTime, a.DateTimeError) {
+  case calendar.month_from_int(month) {
+    Error(_) -> Error(a.InvalidDate(year, month, day))
+    Ok(month) ->
+      a.datetime_validate(a.DateTime(
+        calendar.Date(year, month, day),
+        make_time(hour: hour, minute: minute, second: second),
+      ))
+  }
+}
+
+fn matches_cron(spec spec: a.Cron, at at: a.ValidDateTime) -> Bool {
+  matches_schedule(schedule: a.schedule_from_cron(spec), at: at)
+}
+
+fn matches_schedule(
+  schedule schedule: a.Schedule,
+  at at: a.ValidDateTime,
+) -> Bool {
+  let assert Ok(value) = a.schedule_matches(schedule, at: at)
+  value
+}
+
+fn next_cron(
+  spec spec: a.Cron,
+  after after: a.ValidDateTime,
+) -> option.Option(a.ValidDateTime) {
+  next_schedule(schedule: a.schedule_from_cron(spec), after: after)
+}
+
+fn next_schedule(
+  schedule schedule: a.Schedule,
+  after after: a.ValidDateTime,
+) -> option.Option(a.ValidDateTime) {
+  let assert Ok(value) = a.schedule_next(schedule, after: after)
+  value
+}
+
+fn step_schedule(iterator iterator: a.OccurrenceIterator) -> a.IterStep {
+  let assert Ok(value) = a.schedule_step(iterator)
+  value
+}
+
+fn old_internal_gregorian_days_in_month(year: Int, month: Int) -> Int {
+  let assert Ok(month) = calendar.month_from_int(month)
+  [31, 30, 29, 28]
+  |> list.find(fn(day) {
+    calendar.is_valid_date(calendar.Date(year, month, day))
+  })
+  |> result.unwrap(28)
+}
+
+fn old_internal_calendar_greater_than(
+  left: a.DateTime,
+  right: a.DateTime,
+) -> Bool {
+  // Oracle uses the core library for the ordinary years sampled here.
+  case calendar.naive_date_compare(left.date, right.date) {
+    order.Gt -> True
+    order.Lt -> False
+    order.Eq ->
+      { left.time.hours * 3600 + left.time.minutes * 60 + left.time.seconds }
+      > {
+        right.time.hours * 3600 + right.time.minutes * 60 + right.time.seconds
+      }
+  }
+}
+
+fn old_internal_calendar_add_minutes(
+  value: a.DateTime,
+  minutes: Int,
+) -> a.DateTime {
+  // Independent small-range reference uses core calendar timestamps.
+  let stamp =
+    timestamp.from_calendar(value.date, value.time, duration.seconds(0))
+  let moved = timestamp.add(stamp, duration.minutes(minutes))
+  let #(date, time) = timestamp.to_calendar(moved, duration.seconds(0))
+  a.DateTime(date, time)
 }

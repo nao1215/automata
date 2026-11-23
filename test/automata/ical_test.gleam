@@ -1,13 +1,10 @@
-import automata/ical
-import automata/ical/emitter
-import automata/ical/parser as ical_parser
-import automata/ical/validator as ical_validator
-import automata/rrule
-import automata/schedule/ast as schedule_ast
+import automata as a
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
+import gleam/time/calendar
 import gleeunit/should
 
 // ============================================================
@@ -43,15 +40,15 @@ const nextcloud_export_ics =
 // ============================================================
 
 pub fn parse_and_validate_minimal_test() {
-  let assert Ok(raw) = ical_parser.parse(minimal_ics)
-  let assert Ok(cal) = ical_validator.validate(raw)
+  let assert Ok(raw) = a.ical_parse_raw(minimal_ics)
+  let assert Ok(cal) = a.ical_validate(raw)
 
-  ical_validator.version(cal) |> should.equal("2.0")
-  ical_validator.product_id(cal) |> should.equal("-//test//EN")
+  a.ical_version(cal) |> should.equal("2.0")
+  a.ical_product_id(cal) |> should.equal("-//test//EN")
 
-  let assert [event] = ical_validator.events(cal)
-  ical_validator.event_uid(event) |> should.equal("abc@test")
-  ical_validator.event_summary(event) |> should.equal(Some("Coffee"))
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_uid(event) |> should.equal("abc@test")
+  a.ical_event_summary(event) |> should.equal(Some("Coffee"))
 }
 
 // ============================================================
@@ -59,35 +56,35 @@ pub fn parse_and_validate_minimal_test() {
 // ============================================================
 
 pub fn parse_empty_input_returns_error_test() {
-  ical.parse("") |> should.equal(Error(ical.EmptyInputError))
+  a.ical_parse("") |> should.equal(Error(a.IcalEmptyInputError))
 }
 
 pub fn parse_minimal_calendar_test() {
-  let assert Ok(cal) = ical.parse(minimal_ics)
-  ical.version(cal) |> should.equal("2.0")
-  ical.product_id(cal) |> should.equal("-//test//EN")
-  ical.events(cal) |> list.length |> should.equal(1)
+  let assert Ok(cal) = a.ical_parse(minimal_ics)
+  a.ical_version(cal) |> should.equal("2.0")
+  a.ical_product_id(cal) |> should.equal("-//test//EN")
+  a.ical_events(cal) |> list.length |> should.equal(1)
 }
 
 pub fn parse_missing_version_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  ical.parse(ics) |> should.equal(Error(ical.MissingVersion))
+  a.ical_parse(ics) |> should.equal(Error(a.IcalMissingVersion))
 }
 
 pub fn parse_missing_prodid_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  ical.parse(ics) |> should.equal(Error(ical.MissingProductId))
+  a.ical_parse(ics) |> should.equal(Error(a.IcalMissingProductId))
 }
 
 pub fn parse_unmatched_begin_test() {
   let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\n"
-  case ical.parse(ics) {
-    Error(ical.MismatchedBlock(begin: "VCALENDAR", ..)) -> Nil
+  case a.ical_parse(ics) {
+    Error(a.IcalMismatchedBlock(begin: "VCALENDAR", ..)) -> Nil
     other -> {
       other
-      |> should.equal(Error(ical.MismatchedBlock("VCALENDAR", "<eof>", 1)))
+      |> should.equal(Error(a.IcalMismatchedBlock("VCALENDAR", "<eof>", 1)))
       Nil
     }
   }
@@ -96,52 +93,52 @@ pub fn parse_unmatched_begin_test() {
 pub fn parse_unmatched_end_test() {
   let ics =
     "BEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nEND:VEVENT\r\n"
-  case ical.parse(ics) {
+  case a.ical_parse(ics) {
     Error(_) -> Nil
     Ok(_) -> should.fail()
   }
 }
 
 pub fn parse_nested_valarm_test() {
-  let assert Ok(cal) = ical.parse(alarm_ics)
-  let assert [event] = ical.events(cal)
-  let assert [alarm] = ical.event_alarms(event)
-  ical.alarm_action(alarm) |> should.equal("DISPLAY")
-  ical.alarm_trigger(alarm) |> should.equal("-PT15M")
-  ical.alarm_description(alarm) |> should.equal(Some("Reminder"))
+  let assert Ok(cal) = a.ical_parse(alarm_ics)
+  let assert [event] = a.ical_events(cal)
+  let assert [alarm] = a.ical_event_alarms(event)
+  a.ical_alarm_action(alarm) |> should.equal("DISPLAY")
+  a.ical_alarm_trigger(alarm) |> should.equal("-PT15M")
+  a.ical_alarm_description(alarm) |> should.equal(Some("Reminder"))
 }
 
 pub fn parse_unknown_component_preserved_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:X-CUSTOM\r\nX-FIELD:hello\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [unknown] = ical.unknown_components(cal)
-  let ical_validator.UnknownComponent(kind: kind, ..) = unknown
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [unknown] = a.ical_unknown_components(cal)
+  let a.IcalUnknownComponent(kind: kind, ..) = unknown
   kind |> should.equal("X-CUSTOM")
 }
 
 pub fn parse_case_insensitive_property_names_test() {
   let ics =
     "begin:vcalendar\r\nversion:2.0\r\nprodid:-//x//EN\r\nbegin:vevent\r\nuid:u@x\r\ndtstamp:20260101T000000Z\r\nsummary:Hi\r\nend:vevent\r\nend:vcalendar\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("Hi"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("Hi"))
 }
 
 pub fn parse_case_insensitive_parameter_names_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u@x\r\nDTSTAMP:20260101T000000Z\r\ndtstart;tzid=Asia/Tokyo:20260101T090000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_dtstart_tzid(event) |> should.equal(Some("Asia/Tokyo"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_dtstart_tzid(event) |> should.equal(Some("Asia/Tokyo"))
 }
 
 pub fn parse_quoted_parameter_value_with_comma_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u@x\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;TZID=\"Asia/Tokyo,Standard\":20260101T090000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_dtstart_tzid(event) |> should.equal(Some("Asia/Tokyo,Standard"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_dtstart_tzid(event) |> should.equal(Some("Asia/Tokyo,Standard"))
 }
 
 pub fn parse_long_folded_summary_test() {
@@ -153,9 +150,9 @@ pub fn parse_long_folded_summary_test() {
     <> "\r\n"
     <> line2
     <> "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  case ical.event_summary(event) {
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  case a.ical_event_summary(event) {
     Some(s) -> {
       string.contains(s, "very long summary") |> should.equal(True)
       string.contains(s, "fold mechanism") |> should.equal(True)
@@ -166,14 +163,14 @@ pub fn parse_long_folded_summary_test() {
 
 pub fn parse_lf_only_line_endings_test() {
   let lf_input = string.replace(minimal_ics, "\r\n", "\n")
-  let assert Ok(cal) = ical.parse(lf_input)
-  ical.version(cal) |> should.equal("2.0")
+  let assert Ok(cal) = a.ical_parse(lf_input)
+  a.ical_version(cal) |> should.equal("2.0")
 }
 
 pub fn parse_bom_tolerated_test() {
   let bom_input = "\u{FEFF}" <> minimal_ics
-  let assert Ok(cal) = ical.parse(bom_input)
-  ical.version(cal) |> should.equal("2.0")
+  let assert Ok(cal) = a.ical_parse(bom_input)
+  a.ical_version(cal) |> should.equal("2.0")
 }
 
 // ============================================================
@@ -183,58 +180,58 @@ pub fn parse_bom_tolerated_test() {
 pub fn escape_backslash_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:back\\\\slash\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("back\\slash"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("back\\slash"))
 }
 
 pub fn escape_comma_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:a\\,b\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("a,b"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("a,b"))
 }
 
 pub fn escape_semicolon_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:a\\;b\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("a;b"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("a;b"))
 }
 
 pub fn escape_newline_lower_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:a\\nb\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("a\nb"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("a\nb"))
 }
 
 pub fn escape_newline_upper_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:a\\Nb\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_summary(event) |> should.equal(Some("a\nb"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_summary(event) |> should.equal(Some("a\nb"))
 }
 
 pub fn escape_applied_to_location_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nLOCATION:Tokyo\\, Japan\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_location(event) |> should.equal(Some("Tokyo, Japan"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_location(event) |> should.equal(Some("Tokyo, Japan"))
 }
 
 pub fn escape_not_applied_to_uri_test() {
   // URLs contain ; in some cases; we don't unescape URL.
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:20260101T000000Z\r\nURL:https://example.com/path\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(ics)
-  let assert [event] = ical.events(cal)
-  ical.event_url(event) |> should.equal(Some("https://example.com/path"))
+  let assert Ok(cal) = a.ical_parse(ics)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_url(event) |> should.equal(Some("https://example.com/path"))
 }
 
 // ============================================================
@@ -242,19 +239,19 @@ pub fn escape_not_applied_to_uri_test() {
 // ============================================================
 
 pub fn rrule_returned_as_raw_test() {
-  let assert Ok(cal) = ical.parse(recurrence_ics)
-  let assert [event] = ical.events(cal)
-  case ical.event_rrule(event) {
+  let assert Ok(cal) = a.ical_parse(recurrence_ics)
+  let assert [event] = a.ical_events(cal)
+  case a.ical_event_rrule(event) {
     Some(_raw) -> Nil
     None -> should.fail()
   }
 }
 
 pub fn rrule_pipes_to_validator_test() {
-  let assert Ok(cal) = ical.parse(recurrence_ics)
-  let assert [event] = ical.events(cal)
-  let assert Some(raw) = ical.event_rrule(event)
-  case rrule.validate(raw: raw) {
+  let assert Ok(cal) = a.ical_parse(recurrence_ics)
+  let assert [event] = a.ical_events(cal)
+  let assert Some(raw) = a.ical_event_rrule(event)
+  case a.rrule_validate(raw: raw) {
     Ok(_spec) -> Nil
     Error(_) -> should.fail()
   }
@@ -263,11 +260,11 @@ pub fn rrule_pipes_to_validator_test() {
 pub fn rrule_duplicate_rejected_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:dup@x\r\nDTSTAMP:20260101T000000Z\r\nRRULE:FREQ=DAILY\r\nRRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  case ical.parse(ics) {
-    Error(ical.DuplicateRRule(component_uid: "dup@x")) -> Nil
+  case a.ical_parse(ics) {
+    Error(a.IcalDuplicateRRule(component_uid: "dup@x")) -> Nil
     other -> {
       other
-      |> should.equal(Error(ical.DuplicateRRule(component_uid: "dup@x")))
+      |> should.equal(Error(a.IcalDuplicateRRule(component_uid: "dup@x")))
       Nil
     }
   }
@@ -278,11 +275,11 @@ pub fn rrule_duplicate_rejected_test() {
 // ============================================================
 
 fn round_trip_preserves_event_count(input: String) -> Nil {
-  let assert Ok(cal1) = ical.parse(input)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  list.length(ical.events(cal1))
-  |> should.equal(list.length(ical.events(cal2)))
+  let assert Ok(cal1) = a.ical_parse(input)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  list.length(a.ical_events(cal1))
+  |> should.equal(list.length(a.ical_events(cal2)))
 }
 
 pub fn round_trip_minimal_test() {
@@ -290,45 +287,45 @@ pub fn round_trip_minimal_test() {
 }
 
 pub fn round_trip_recurrence_test() {
-  let assert Ok(cal1) = ical.parse(recurrence_ics)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  let assert [e1] = ical.events(cal1)
-  let assert [e2] = ical.events(cal2)
-  ical.event_rrule(e1) |> should.equal(ical.event_rrule(e2))
+  let assert Ok(cal1) = a.ical_parse(recurrence_ics)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  let assert [e1] = a.ical_events(cal1)
+  let assert [e2] = a.ical_events(cal2)
+  a.ical_event_rrule(e1) |> should.equal(a.ical_event_rrule(e2))
 }
 
 pub fn round_trip_todo_test() {
-  let assert Ok(cal1) = ical.parse(todo_ics)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  let assert [t1] = ical.todos(cal1)
-  let assert [t2] = ical.todos(cal2)
-  ical.todo_uid(t1) |> should.equal(ical.todo_uid(t2))
-  ical.todo_summary(t1) |> should.equal(ical.todo_summary(t2))
-  ical.todo_priority(t1) |> should.equal(ical.todo_priority(t2))
+  let assert Ok(cal1) = a.ical_parse(todo_ics)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  let assert [t1] = a.ical_todos(cal1)
+  let assert [t2] = a.ical_todos(cal2)
+  a.ical_todo_uid(t1) |> should.equal(a.ical_todo_uid(t2))
+  a.ical_todo_summary(t1) |> should.equal(a.ical_todo_summary(t2))
+  a.ical_todo_priority(t1) |> should.equal(a.ical_todo_priority(t2))
 }
 
 pub fn round_trip_alarm_test() {
-  let assert Ok(cal1) = ical.parse(alarm_ics)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  let assert [e1] = ical.events(cal1)
-  let assert [e2] = ical.events(cal2)
-  let assert [a1] = ical.event_alarms(e1)
-  let assert [a2] = ical.event_alarms(e2)
-  ical.alarm_action(a1) |> should.equal(ical.alarm_action(a2))
-  ical.alarm_trigger(a1) |> should.equal(ical.alarm_trigger(a2))
+  let assert Ok(cal1) = a.ical_parse(alarm_ics)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  let assert [e1] = a.ical_events(cal1)
+  let assert [e2] = a.ical_events(cal2)
+  let assert [a1] = a.ical_event_alarms(e1)
+  let assert [a2] = a.ical_event_alarms(e2)
+  a.ical_alarm_action(a1) |> should.equal(a.ical_alarm_action(a2))
+  a.ical_alarm_trigger(a1) |> should.equal(a.ical_alarm_trigger(a2))
 }
 
 pub fn round_trip_google_test() {
-  let assert Ok(cal1) = ical.parse(google_export_ics)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  list.length(ical.events(cal1))
-  |> should.equal(list.length(ical.events(cal2)))
-  list.length(ical.timezones(cal1))
-  |> should.equal(list.length(ical.timezones(cal2)))
+  let assert Ok(cal1) = a.ical_parse(google_export_ics)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  list.length(a.ical_events(cal1))
+  |> should.equal(list.length(a.ical_events(cal2)))
+  list.length(a.ical_timezones(cal1))
+  |> should.equal(list.length(a.ical_timezones(cal2)))
 }
 
 pub fn round_trip_apple_test() {
@@ -336,10 +333,10 @@ pub fn round_trip_apple_test() {
 }
 
 pub fn round_trip_outlook_test() {
-  let assert Ok(cal1) = ical.parse(outlook_export_ics)
-  let encoded = ical.encode(cal1)
-  let assert Ok(cal2) = ical.parse(encoded)
-  ical.method(cal1) |> should.equal(ical.method(cal2))
+  let assert Ok(cal1) = a.ical_parse(outlook_export_ics)
+  let encoded = encode_calendar(cal1)
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  a.ical_method(cal1) |> should.equal(a.ical_method(cal2))
 }
 
 pub fn round_trip_nextcloud_test() {
@@ -353,7 +350,7 @@ pub fn round_trip_nextcloud_test() {
 pub fn emit_no_line_exceeds_75_octets_test() {
   let long_summary = string.repeat("a", 200)
   let assert Ok(start_dt) =
-    schedule_ast.try_datetime(
+    make_checked_datetime(
       year: 2026,
       month: 5,
       day: 11,
@@ -362,12 +359,12 @@ pub fn emit_no_line_exceeds_75_octets_test() {
       second: 0,
     )
   let cal =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_event(
-      ical.new_event(uid: "long@x", dtstamp: start_dt)
-      |> ical.with_summary(long_summary),
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_event(
+      a.ical_new_event(uid: "long@x", dtstamp: start_dt)
+      |> a.ical_with_summary(long_summary),
     )
-  let encoded = ical.encode(cal)
+  let encoded = encode_calendar(cal)
   let lines = string.split(encoded, "\r\n")
   list.each(lines, fn(line) {
     // 75 octet limit is on the raw bytes pre-CRLF; ASCII char count == bytes
@@ -379,14 +376,14 @@ pub fn emit_no_line_exceeds_75_octets_test() {
 }
 
 pub fn emit_uses_crlf_test() {
-  let assert Ok(cal) = ical.parse(minimal_ics)
-  let encoded = ical.encode(cal)
+  let assert Ok(cal) = a.ical_parse(minimal_ics)
+  let encoded = encode_calendar(cal)
   string.contains(encoded, "\r\n") |> should.equal(True)
 }
 
 pub fn emit_escapes_text_specials_test() {
   let assert Ok(start_dt) =
-    schedule_ast.try_datetime(
+    make_checked_datetime(
       year: 2026,
       month: 5,
       day: 11,
@@ -395,12 +392,12 @@ pub fn emit_escapes_text_specials_test() {
       second: 0,
     )
   let cal =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_event(
-      ical.new_event(uid: "esc@x", dtstamp: start_dt)
-      |> ical.with_summary("a,b;c\nd"),
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_event(
+      a.ical_new_event(uid: "esc@x", dtstamp: start_dt)
+      |> a.ical_with_summary("a,b;c\nd"),
     )
-  let encoded = ical.encode(cal)
+  let encoded = encode_calendar(cal)
   string.contains(encoded, "a\\,b\\;c\\nd") |> should.equal(True)
 }
 
@@ -409,56 +406,56 @@ pub fn emit_escapes_text_specials_test() {
 // ============================================================
 
 pub fn fixture_minimal_parses_test() {
-  case ical.parse(minimal_ics) {
+  case a.ical_parse(minimal_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_recurrence_parses_test() {
-  case ical.parse(recurrence_ics) {
+  case a.ical_parse(recurrence_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_todo_parses_test() {
-  case ical.parse(todo_ics) {
+  case a.ical_parse(todo_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_alarm_parses_test() {
-  case ical.parse(alarm_ics) {
+  case a.ical_parse(alarm_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_google_parses_test() {
-  case ical.parse(google_export_ics) {
+  case a.ical_parse(google_export_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_apple_parses_test() {
-  case ical.parse(apple_export_ics) {
+  case a.ical_parse(apple_export_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_outlook_parses_test() {
-  case ical.parse(outlook_export_ics) {
+  case a.ical_parse(outlook_export_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
 }
 
 pub fn fixture_nextcloud_parses_test() {
-  case ical.parse(nextcloud_export_ics) {
+  case a.ical_parse(nextcloud_export_ics) {
     Ok(_) -> Nil
     Error(_) -> should.fail()
   }
@@ -471,13 +468,13 @@ pub fn fixture_nextcloud_parses_test() {
 pub fn error_carries_line_number_test() {
   // Malformed property: missing colon (and not BEGIN/END marker) on line 3.
   let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nNOCOLONHERE\r\nEND:VCALENDAR\r\n"
-  case ical.parse(ics) {
-    Error(ical.MalformedProperty(line: ln, ..)) -> {
+  case a.ical_parse(ics) {
+    Error(a.IcalMalformedProperty(line: ln, ..)) -> {
       ln |> should.equal(3)
     }
     other -> {
       other
-      |> should.equal(Error(ical.MalformedProperty(3, "NOCOLONHERE")))
+      |> should.equal(Error(a.IcalMalformedProperty(3, "NOCOLONHERE")))
       Nil
     }
   }
@@ -486,11 +483,11 @@ pub fn error_carries_line_number_test() {
 pub fn error_carries_raw_text_test() {
   let ics =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\nUID:u\r\nDTSTAMP:not-a-date\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-  case ical.parse(ics) {
-    Error(ical.InvalidDateTime(name: "DTSTAMP", raw: "not-a-date")) -> Nil
+  case a.ical_parse(ics) {
+    Error(a.IcalInvalidDateTime(name: "DTSTAMP", raw: "not-a-date")) -> Nil
     other -> {
       other
-      |> should.equal(Error(ical.InvalidDateTime("DTSTAMP", "not-a-date")))
+      |> should.equal(Error(a.IcalInvalidDateTime("DTSTAMP", "not-a-date")))
       Nil
     }
   }
@@ -501,12 +498,12 @@ pub fn error_carries_raw_text_test() {
 // ============================================================
 
 pub fn fold_line_short_returns_single_test() {
-  emitter.fold_line("hello") |> should.equal(["hello"])
+  old_ical_emitter_fold_line("hello") |> should.equal(["hello"])
 }
 
 pub fn fold_line_long_folds_test() {
   let long = string.repeat("a", 200)
-  let folded = emitter.fold_line(long)
+  let folded = old_ical_emitter_fold_line(long)
   list.length(folded) |> { fn(n) { n > 1 } } |> should.equal(True)
   list.each(folded, fn(line) {
     case string.byte_size(line) > 75 {
@@ -518,11 +515,11 @@ pub fn fold_line_long_folds_test() {
 
 pub fn escape_text_round_trip_test() {
   let s = "comma,semi;back\\nl\nnormal"
-  let escaped = emitter.escape_text(s)
+  let escaped = old_ical_emitter_escape_text(s)
   // We can't directly call validator.unescape_text but we can verify the
   // escaped string parses back through a round trip via SUMMARY.
   let assert Ok(start_dt) =
-    schedule_ast.try_datetime(
+    make_checked_datetime(
       year: 2026,
       month: 5,
       day: 11,
@@ -531,16 +528,16 @@ pub fn escape_text_round_trip_test() {
       second: 0,
     )
   let cal =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_event(
-      ical.new_event(uid: "esc@x", dtstamp: start_dt)
-      |> ical.with_summary(s),
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_event(
+      a.ical_new_event(uid: "esc@x", dtstamp: start_dt)
+      |> a.ical_with_summary(s),
     )
-  let encoded = ical.encode(cal)
+  let encoded = encode_calendar(cal)
   string.contains(encoded, escaped) |> should.equal(True)
-  let assert Ok(cal2) = ical.parse(encoded)
-  let assert [e2] = ical.events(cal2)
-  ical.event_summary(e2) |> should.equal(Some(s))
+  let assert Ok(cal2) = a.ical_parse(encoded)
+  let assert [e2] = a.ical_events(cal2)
+  a.ical_event_summary(e2) |> should.equal(Some(s))
 }
 
 // ============================================================
@@ -552,8 +549,8 @@ const utc_event_ics =
 
 pub fn encode_preserves_z_marker_on_dtstamp_test() {
   let body = utc_event_ics
-  let assert Ok(cal) = ical.parse(body)
-  let encoded = ical.encode(cal)
+  let assert Ok(cal) = a.ical_parse(body)
+  let encoded = encode_calendar(cal)
   // Every emitted DATE-TIME line should keep its Z suffix.
   string.contains(encoded, "DTSTAMP:20240101T120000Z") |> should.equal(True)
   string.contains(encoded, "DTSTART:20240615T090000Z") |> should.equal(True)
@@ -563,8 +560,8 @@ pub fn encode_preserves_z_marker_on_dtstamp_test() {
 pub fn encode_keeps_no_z_under_tzid_test() {
   // When DTSTART carries TZID, the value is FORM #3 (local time anchored
   // to a named zone) and MUST NOT have a Z suffix.
-  let assert Ok(cal) = ical.parse(google_export_ics)
-  let encoded = ical.encode(cal)
+  let assert Ok(cal) = a.ical_parse(google_export_ics)
+  let encoded = encode_calendar(cal)
   // Should emit DTSTART;TZID=Asia/Tokyo:20260620T100000 (no Z)
   string.contains(encoded, "DTSTART;TZID=Asia/Tokyo:20260620T100000")
   |> should.equal(True)
@@ -573,8 +570,8 @@ pub fn encode_keeps_no_z_under_tzid_test() {
 }
 
 pub fn encode_preserves_z_on_created_and_last_modified_test() {
-  let assert Ok(cal) = ical.parse(nextcloud_export_ics)
-  let encoded = ical.encode(cal)
+  let assert Ok(cal) = a.ical_parse(nextcloud_export_ics)
+  let encoded = encode_calendar(cal)
   string.contains(encoded, "CREATED:20260101T100000Z") |> should.equal(True)
   string.contains(encoded, "LAST-MODIFIED:20260105T120000Z")
   |> should.equal(True)
@@ -584,25 +581,25 @@ pub fn encode_preserves_z_on_created_and_last_modified_test() {
 // Component order
 // ============================================================
 
-fn stamp() -> schedule_ast.DateTime {
-  schedule_ast.datetime(2026, 5, 11, 9, 0, 0)
+fn stamp() -> a.DateTime {
+  make_datetime(year: 2026, month: 5, day: 11, hour: 9, minute: 0, second: 0)
 }
 
 pub fn add_component_keeps_insertion_order_test() {
   let cal =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_event(ical.new_event(uid: "e1", dtstamp: stamp()))
-    |> ical.add_todo(ical.new_todo(uid: "t1", dtstamp: stamp()))
-    |> ical.add_event(ical.new_event(uid: "e2", dtstamp: stamp()))
-    |> ical.add_todo(ical.new_todo(uid: "t2", dtstamp: stamp()))
-    |> ical.add_event(ical.new_event(uid: "e3", dtstamp: stamp()))
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_event(a.ical_new_event(uid: "e1", dtstamp: stamp()))
+    |> a.ical_add_todo(a.ical_new_todo(uid: "t1", dtstamp: stamp()))
+    |> a.ical_add_event(a.ical_new_event(uid: "e2", dtstamp: stamp()))
+    |> a.ical_add_todo(a.ical_new_todo(uid: "t2", dtstamp: stamp()))
+    |> a.ical_add_event(a.ical_new_event(uid: "e3", dtstamp: stamp()))
 
-  list.map(ical.events(cal), ical.event_uid)
+  list.map(a.ical_events(cal), a.ical_event_uid)
   |> should.equal(["e1", "e2", "e3"])
-  list.map(ical.todos(cal), ical.todo_uid) |> should.equal(["t1", "t2"])
+  list.map(a.ical_todos(cal), a.ical_todo_uid) |> should.equal(["t1", "t2"])
 
-  let assert Ok(decoded) = ical.parse(ical.encode(cal))
-  list.map(ical.events(decoded), ical.event_uid)
+  let assert Ok(decoded) = a.ical_parse(encode_calendar(cal))
+  list.map(a.ical_events(decoded), a.ical_event_uid)
   |> should.equal(["e1", "e2", "e3"])
   decoded |> should.equal(cal)
 }
@@ -611,19 +608,19 @@ pub fn add_many_events_keeps_order_test() {
   let cal =
     list.fold(
       list.repeat(Nil, 3000),
-      #(ical.new_calendar(version: "2.0", prod_id: "-//x//EN"), 0),
+      #(a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN"), 0),
       fn(acc, _) {
         let #(cal, n) = acc
         #(
-          ical.add_event(
+          a.ical_add_event(
             cal,
-            ical.new_event(uid: "e" <> int.to_string(n), dtstamp: stamp()),
+            a.ical_new_event(uid: "e" <> int.to_string(n), dtstamp: stamp()),
           ),
           n + 1,
         )
       },
     ).0
-  let uids = list.map(ical.events(cal), ical.event_uid)
+  let uids = list.map(a.ical_events(cal), a.ical_event_uid)
   list.length(uids) |> should.equal(3000)
   list.first(uids) |> should.equal(Ok("e0"))
   list.last(uids) |> should.equal(Ok("e2999"))
@@ -648,8 +645,8 @@ fn wrap_event(lines: List(String)) -> String {
 }
 
 fn encoded_lines(input: String) -> List(String) {
-  let assert Ok(cal) = ical.parse(input)
-  string.split(ical.encode(cal), "\r\n")
+  let assert Ok(cal) = a.ical_parse(input)
+  string.split(encode_calendar(cal), "\r\n")
 }
 
 pub fn encode_keeps_floating_datetime_test() {
@@ -725,14 +722,17 @@ pub fn encode_keeps_alarm_trigger_parameters_test() {
 pub fn setter_replaces_parsed_value_form_test() {
   // A new value from a setter has no form of its own, so it is written
   // as UTC like any built value.
-  let assert Ok(cal) = ical.parse(wrap_event(["DTSTART;VALUE=DATE:20260101"]))
-  let assert [event] = ical.events(cal)
+  let assert Ok(cal) = a.ical_parse(wrap_event(["DTSTART;VALUE=DATE:20260101"]))
+  let assert [event] = a.ical_events(cal)
   let moved =
-    ical.with_dtstart(event, schedule_ast.datetime(2026, 1, 2, 9, 0, 0))
+    a.ical_with_dtstart(
+      event,
+      make_datetime(year: 2026, month: 1, day: 2, hour: 9, minute: 0, second: 0),
+    )
   let out =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_event(moved)
-    |> ical.encode
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_event(moved)
+    |> encode_calendar
   string.contains(out, "DTSTART:20260102T090000Z\r\n") |> should.equal(True)
 }
 
@@ -741,22 +741,31 @@ pub fn duplicate_single_valued_property_keeps_first_test() {
   // model and in the encoded output.
   let input =
     wrap_event(["DTSTART:20260511T130000", "DTSTART:20270101T000000Z"])
-  let assert Ok(cal) = ical.parse(input)
-  let assert [event] = ical.events(cal)
-  ical.event_dtstart(event)
-  |> should.equal(Some(schedule_ast.datetime(2026, 5, 11, 13, 0, 0)))
+  let assert Ok(cal) = a.ical_parse(input)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_dtstart(event)
+  |> should.equal(
+    Some(make_datetime(
+      year: 2026,
+      month: 5,
+      day: 11,
+      hour: 13,
+      minute: 0,
+      second: 0,
+    )),
+  )
   encoded_lines(input)
   |> list.filter(fn(line) { string.starts_with(line, "DTSTART") })
   |> should.equal(["DTSTART:20260511T130000"])
 }
 
-fn encode_events(events: List(ical.Event)) -> List(String) {
+fn encode_events(events: List(a.IcalEvent)) -> List(String) {
   list.fold(
     events,
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN"),
-    ical.add_event,
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN"),
+    a.ical_add_event,
   )
-  |> ical.encode
+  |> encode_calendar
   |> string.split("\r\n")
 }
 
@@ -768,17 +777,31 @@ pub fn added_rdate_is_written_as_utc_test() {
   // The parsed RDATE line is a DATE; a value added later is a UTC
   // DATE-TIME and must not take the parsed line's form.
   let assert Ok(cal) =
-    ical.parse(
+    a.ical_parse(
       wrap_event([
         "DTSTART;VALUE=DATE:20260101", "RDATE;VALUE=DATE:20260105",
         "EXDATE;TZID=Asia/Tokyo:20260108T090000",
       ]),
     )
-  let assert [event] = ical.events(cal)
+  let assert [event] = a.ical_events(cal)
   let lines =
     event
-    |> ical.add_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
-    |> ical.add_exdate(schedule_ast.datetime(2026, 1, 9, 9, 0, 0))
+    |> a.ical_add_rdate(make_datetime(
+      year: 2026,
+      month: 1,
+      day: 7,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    ))
+    |> a.ical_add_exdate(make_datetime(
+      year: 2026,
+      month: 1,
+      day: 9,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    ))
     |> list.wrap
     |> encode_events
   starting_with(lines, "RDATE")
@@ -792,16 +815,30 @@ pub fn added_rdate_is_written_as_utc_test() {
 pub fn added_todo_rdate_is_written_as_utc_test() {
   let input =
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VTODO\r\nUID:t@x\r\nDTSTAMP:20260101T000000Z\r\nRDATE;VALUE=DATE:20260105\r\nEXDATE;VALUE=DATE:20260106\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
-  let assert Ok(cal) = ical.parse(input)
-  let assert [t] = ical.todos(cal)
+  let assert Ok(cal) = a.ical_parse(input)
+  let assert [t] = a.ical_todos(cal)
   let updated =
     t
-    |> ical.add_todo_rdate(schedule_ast.datetime(2026, 1, 7, 9, 0, 0))
-    |> ical.add_todo_exdate(schedule_ast.datetime(2026, 1, 8, 9, 0, 0))
+    |> a.ical_add_todo_rdate(make_datetime(
+      year: 2026,
+      month: 1,
+      day: 7,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    ))
+    |> a.ical_add_todo_exdate(make_datetime(
+      year: 2026,
+      month: 1,
+      day: 8,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    ))
   let lines =
-    ical.new_calendar(version: "2.0", prod_id: "-//x//EN")
-    |> ical.add_todo(updated)
-    |> ical.encode
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_todo(updated)
+    |> encode_calendar
     |> string.split("\r\n")
   starting_with(lines, "RDATE")
   |> should.equal(["RDATE;VALUE=DATE:20260105", "RDATE:20260107T090000Z"])
@@ -834,13 +871,20 @@ pub fn moving_date_dtstart_also_resets_dtend_test() {
   // DTSTART and DTEND must have the same value type, so replacing a DATE
   // DTSTART with a DATE-TIME also writes DTEND as a DATE-TIME.
   let assert Ok(cal) =
-    ical.parse(
+    a.ical_parse(
       wrap_event(["DTSTART;VALUE=DATE:20260101", "DTEND;VALUE=DATE:20260102"]),
     )
-  let assert [event] = ical.events(cal)
+  let assert [event] = a.ical_events(cal)
   let lines =
     event
-    |> ical.with_dtstart(schedule_ast.datetime(2026, 1, 1, 9, 0, 0))
+    |> a.ical_with_dtstart(make_datetime(
+      year: 2026,
+      month: 1,
+      day: 1,
+      hour: 9,
+      minute: 0,
+      second: 0,
+    ))
     |> list.wrap
     |> encode_events
   starting_with(lines, "DTSTART") |> should.equal(["DTSTART:20260101T090000Z"])
@@ -901,16 +945,16 @@ pub fn category_lines_keep_their_languages_test() {
 
 pub fn appended_properties_do_not_inherit_parsed_parameters_test() {
   let assert Ok(cal) =
-    ical.parse(
+    a.ical_parse(
       wrap_event([
         "ATTENDEE;CN=Alice:mailto:a@x", "CATEGORIES;LANGUAGE=de:Arbeit",
       ]),
     )
-  let assert [event] = ical.events(cal)
+  let assert [event] = a.ical_events(cal)
   let lines =
     event
-    |> ical.add_attendee("mailto:b@x")
-    |> ical.add_category("Work")
+    |> a.ical_add_attendee("mailto:b@x")
+    |> a.ical_add_category("Work")
     |> list.wrap
     |> encode_events
   starting_with(lines, "ATTENDEE")
@@ -921,7 +965,7 @@ pub fn appended_properties_do_not_inherit_parsed_parameters_test() {
 
 pub fn event_setters_clear_replaced_property_parameters_test() {
   let assert Ok(cal) =
-    ical.parse(
+    a.ical_parse(
       wrap_event([
         "SUMMARY;LANGUAGE=de:Alt", "DESCRIPTION;LANGUAGE=de:Alt",
         "LOCATION;ALTREP=\"cid:old\":Alt", "URL;X-LABEL=old:https://old",
@@ -929,16 +973,16 @@ pub fn event_setters_clear_replaced_property_parameters_test() {
         "TRANSP;X-LABEL=old:OPAQUE",
       ]),
     )
-  let assert [event] = ical.events(cal)
+  let assert [event] = a.ical_events(cal)
   let lines =
     event
-    |> ical.with_summary("New")
-    |> ical.with_description("New")
-    |> ical.with_location("New")
-    |> ical.with_url("https://new")
-    |> ical.with_duration("PT2H")
-    |> ical.with_status("CONFIRMED")
-    |> ical.with_transparency("TRANSPARENT")
+    |> a.ical_with_summary("New")
+    |> a.ical_with_description("New")
+    |> a.ical_with_location("New")
+    |> a.ical_with_url("https://new")
+    |> a.ical_with_duration("PT2H")
+    |> a.ical_with_status("CONFIRMED")
+    |> a.ical_with_transparency("TRANSPARENT")
     |> list.wrap
     |> encode_events
   [
@@ -961,20 +1005,20 @@ pub fn other_component_setters_clear_replaced_parameters_test() {
       "BEGIN:VJOURNAL\r\nUID:j\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY;LANGUAGE=de:Alt\r\nEND:VJOURNAL\r\n",
       "BEGIN:VEVENT\r\nUID:e\r\nDTSTAMP:20260101T000000Z\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION;LANGUAGE=de:Alt\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
     ])
-  let assert Ok(cal) = ical.parse(input)
-  let assert [task] = ical.todos(cal)
-  let assert [journal] = ical.journals(cal)
-  let assert [event] = ical.events(cal)
-  let assert [alarm] = ical.event_alarms(event)
+  let assert Ok(cal) = a.ical_parse(input)
+  let assert [task] = a.ical_todos(cal)
+  let assert [journal] = a.ical_journals(cal)
+  let assert [event] = a.ical_events(cal)
+  let assert [alarm] = a.ical_event_alarms(event)
   let lines =
-    ical.new_calendar("2.0", "-//x//EN")
-    |> ical.add_todo(ical.with_todo_summary(task, "New"))
-    |> ical.add_journal(ical.with_journal_summary(journal, "New"))
-    |> ical.add_event(
-      ical.new_event("new", stamp())
-      |> ical.add_alarm(ical.with_alarm_description(alarm, "New")),
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_todo(a.ical_with_todo_summary(task, "New"))
+    |> a.ical_add_journal(a.ical_with_journal_summary(journal, "New"))
+    |> a.ical_add_event(
+      a.ical_new_event(uid: "new", dtstamp: stamp())
+      |> a.ical_add_alarm(a.ical_with_alarm_description(alarm, "New")),
     )
-    |> ical.encode
+    |> encode_calendar
     |> string.split("\r\n")
   starting_with(lines, "SUMMARY")
   |> should.equal(["SUMMARY:New", "SUMMARY:New"])
@@ -996,9 +1040,9 @@ pub fn exdate_lines_keep_their_own_forms_on_events_and_todos_test() {
 
 pub fn categories_distinguish_escaped_backslashes_from_escaped_commas_test() {
   let input = wrap_event(["CATEGORIES:Path\\\\,Next,Home\\, office"])
-  let assert Ok(cal) = ical.parse(input)
-  let assert [event] = ical.events(cal)
-  ical.event_categories(event)
+  let assert Ok(cal) = a.ical_parse(input)
+  let assert [event] = a.ical_events(cal)
+  a.ical_event_categories(event)
   |> should.equal(["Path\\", "Next", "Home, office"])
   encoded_lines(input)
   |> starting_with("CATEGORIES")
@@ -1053,11 +1097,11 @@ pub fn calendar_and_timezone_keep_text_escaping_and_parameters_test() {
 }
 
 pub fn replacing_extension_property_clears_parameters_and_escapes_text_test() {
-  let assert Ok(cal) = ical.parse(wrap_event(["X-NAME;LANGUAGE=de:Alt"]))
-  let assert [event] = ical.events(cal)
+  let assert Ok(cal) = a.ical_parse(wrap_event(["X-NAME;LANGUAGE=de:Alt"]))
+  let assert [event] = a.ical_events(cal)
   let lines =
     event
-    |> ical.with_event_x_property("X-NAME", "New, text")
+    |> a.ical_with_event_x_property("X-NAME", "New, text")
     |> list.wrap
     |> encode_events
   starting_with(lines, "X-NAME") |> should.equal(["X-NAME:New\\, text"])
@@ -1096,4 +1140,101 @@ pub fn parsed_timezone_rule_keeps_an_explicit_utc_marker_test() {
   encoded_lines(input)
   |> starting_with("DTSTART")
   |> should.equal(["DTSTART:20260101T020000Z"])
+}
+
+fn encode_calendar(value: a.IcalCalendar) -> String {
+  let assert Ok(value) = a.ical_encode(value)
+  value
+}
+
+fn make_checked_datetime(
+  year year: Int,
+  month month: Int,
+  day day: Int,
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> Result(a.DateTime, a.DateTimeError) {
+  make_valid_datetime(
+    year: year,
+    month: month,
+    day: day,
+    hour: hour,
+    minute: minute,
+    second: second,
+  )
+  |> result.map(a.datetime_value)
+}
+
+fn make_date(year year: Int, month month: Int, day day: Int) -> calendar.Date {
+  let assert Ok(month) = calendar.month_from_int(month)
+  calendar.Date(year, month, day)
+}
+
+fn make_datetime(
+  year year: Int,
+  month month: Int,
+  day day: Int,
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> a.DateTime {
+  a.DateTime(
+    make_date(year: year, month: month, day: day),
+    make_time(hour: hour, minute: minute, second: second),
+  )
+}
+
+fn make_time(
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> calendar.TimeOfDay {
+  calendar.TimeOfDay(hour, minute, second, 0)
+}
+
+fn make_valid_datetime(
+  year year: Int,
+  month month: Int,
+  day day: Int,
+  hour hour: Int,
+  minute minute: Int,
+  second second: Int,
+) -> Result(a.ValidDateTime, a.DateTimeError) {
+  case calendar.month_from_int(month) {
+    Error(_) -> Error(a.InvalidDate(year, month, day))
+    Ok(month) ->
+      a.datetime_validate(a.DateTime(
+        calendar.Date(year, month, day),
+        make_time(hour: hour, minute: minute, second: second),
+      ))
+  }
+}
+
+fn old_ical_emitter_fold_line(value: String) -> List(String) {
+  let encoded =
+    encode_calendar(a.ical_new_calendar(version: "2.0", prod_id: value))
+  let lines =
+    string.split(encoded, "\r\n")
+    |> list.drop(2)
+    |> list.take_while(fn(line) { line != "END:VCALENDAR" && line != "" })
+  let assert [first, ..rest] = lines
+  [string.drop_start(first, 7), ..rest]
+}
+
+fn old_ical_emitter_escape_text(value: String) -> String {
+  let at =
+    make_datetime(year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0)
+  let event =
+    a.ical_new_event(uid: "escape", dtstamp: at) |> a.ical_with_summary(value)
+  let encoded =
+    a.ical_new_calendar(version: "2.0", prod_id: "test")
+    |> a.ical_add_event(event)
+    |> encode_calendar
+  let assert Ok(line) =
+    encoded
+    |> string.replace("\r\n ", "")
+    |> string.split("\r\n")
+    |> list.find(fn(line) { string.starts_with(line, "SUMMARY:") })
+  string.drop_start(line, 8)
 }

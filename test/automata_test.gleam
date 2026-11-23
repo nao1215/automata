@@ -1,4 +1,4 @@
-import automata
+import automata as a
 import gleeunit
 import gleeunit/should
 
@@ -11,8 +11,8 @@ type Parity {
   Odd
 }
 
-fn parity_machine() -> automata.Automaton(Parity, Int) {
-  automata.new(
+fn parity_machine() -> a.Automaton(Parity, Int) {
+  a.Automaton(
     initial_state: Even,
     transition: fn(state, symbol) {
       case state, symbol {
@@ -26,28 +26,40 @@ fn parity_machine() -> automata.Automaton(Parity, Int) {
 }
 
 pub fn initial_state_test() {
-  automata.initial_state(parity_machine()) |> should.equal(Even)
+  initial_state(parity_machine()) |> should.equal(Even)
 }
 
 pub fn step_test() {
   let machine = parity_machine()
 
-  automata.step(machine, Even, 1) |> should.equal(Odd)
-  automata.step(machine, Odd, 1) |> should.equal(Even)
-  automata.step(machine, Even, 0) |> should.equal(Even)
+  transition(machine, Even, 1) |> should.equal(Odd)
+  transition(machine, Odd, 1) |> should.equal(Even)
+  transition(machine, Even, 0) |> should.equal(Even)
 }
 
 pub fn run_test() {
   let machine = parity_machine()
 
-  automata.run(machine, [1, 0, 1, 1]) |> should.equal(Odd)
-  automata.run(machine, [1, 1, 0, 0]) |> should.equal(Even)
+  a.run(machine, [1, 0, 1, 1]) |> should.equal(Odd)
+  a.run(machine, [1, 1, 0, 0]) |> should.equal(Even)
 }
 
 pub fn accepts_test() {
   let machine = parity_machine()
 
-  automata.accepts(machine, []) |> should.equal(True)
-  automata.accepts(machine, [1]) |> should.equal(False)
-  automata.accepts(machine, [1, 1, 0, 0]) |> should.equal(True)
+  a.accepts(machine, []) |> should.equal(True)
+  a.accepts(machine, [1]) |> should.equal(False)
+  a.accepts(machine, [1, 1, 0, 0]) |> should.equal(True)
+}
+
+fn initial_state(machine: a.Automaton(state, symbol)) -> state {
+  machine.initial_state
+}
+
+fn transition(
+  machine: a.Automaton(state, symbol),
+  state: state,
+  symbol: symbol,
+) -> state {
+  machine.transition(state, symbol)
 }

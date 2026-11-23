@@ -8,8 +8,10 @@ links = [
   { title = "Changelog", href = "https://github.com/nao1215/automata/blob/main/CHANGELOG.md" },
 ]
 gleam = ">= 1.14.0"
+internal_modules = ["automata/retry/internal/*"]
 
 [dependencies]
+gleam_time = ">= 1.11.0 and < 2.0.0"
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 
 [dev-dependencies]
@@ -33,82 +35,4 @@ prefer_guard_clause = "off"
   "thrown_away_error",
   "unused_exports",
 ]
-"src/automata/cron.gleam" = [
-  "deep_nesting",
-  "missing_labels",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/cron/builder.gleam" = ["deep_nesting"]
-"src/automata/cron/iterator.gleam" = ["deep_nesting"]
-"src/automata/cron/parser.gleam" = ["deep_nesting"]
-"src/automata/cron/validator.gleam" = ["deep_nesting", "thrown_away_error"]
-"src/automata/internal/calendar.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/rrule.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/rrule/evaluator.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/rrule/validator.gleam" = ["deep_nesting"]
-"src/automata/schedule/ast.gleam" = ["unused_exports"]
-"src/automata/event.gleam" = ["unused_exports"]
-"src/automata/event/source.gleam" = ["unused_exports"]
-"src/automata/event/metadata.gleam" = ["unused_exports", "thrown_away_error"]
-"src/automata/event/filter.gleam" = ["unused_exports"]
-"src/automata/event/match.gleam" = ["unused_exports"]
-"src/automata/event/builtin/body.gleam" = ["unused_exports"]
-"src/automata/event/builtin/filter.gleam" = [
-  "unused_exports",
-  "thrown_away_error",
-]
-"src/automata/event/builtin/match.gleam" = ["unused_exports"]
-"src/automata/retry.gleam" = ["unused_exports"]
-"src/automata/retry/internal/prng.gleam" = ["unused_exports"]
-"src/automata/fsevent.gleam" = ["unused_exports"]
-"src/automata/fsevent/ast.gleam" = ["unused_exports"]
-"src/automata/fsevent/path.gleam" = ["unused_exports"]
-"src/automata/fsevent/op.gleam" = ["unused_exports"]
-"src/automata/fsevent/entry.gleam" = ["unused_exports"]
-"src/automata/fsevent/snapshot.gleam" = [
-  "unused_exports",
-  "thrown_away_error",
-]
-"src/automata/fsevent/watch.gleam" = ["unused_exports"]
-"src/automata/fsevent/event.gleam" = ["unused_exports"]
-"src/automata/fsevent/diff.gleam" = [
-  "unused_exports",
-  "thrown_away_error",
-  "deep_nesting",
-]
-"src/automata/ical.gleam" = ["unused_exports"]
-"src/automata/ical/ast.gleam" = ["unused_exports"]
-"src/automata/ical/lexer.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/ical/parser.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/ical/validator.gleam" = [
-  "deep_nesting",
-  "thrown_away_error",
-  "unused_exports",
-]
-"src/automata/ical/emitter.gleam" = [
-  "deep_nesting",
-  "short_variable_name",
-  "thrown_away_error",
-  "unused_exports",
-]
+"src/automata.gleam" = ["unused_exports"]
