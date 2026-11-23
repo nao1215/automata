@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-23
+
 ### Changed
 
 - Breaking: consolidate the public API into `automata`. Remove the public `automata/cron`, `automata/rrule`, `automata/schedule`, `automata/event`, `automata/fsevent`, `automata/ical`, and `automata/retry` module families, their phase modules, and re-export aliases. Keep finite automata, cron, all seven recurrence frequencies, civil schedules, generic and built-in events, filesystem snapshots/differences, every supported iCalendar component, and retries.
@@ -39,7 +41,6 @@ let spec = automata.cron_new(automata.CronOptions(
 ### Fixed
 
 - Return a typed RRULE validation error for out-of-range months in raw UNTIL dates and date-times.
-
 - Keep embedded U+FEFF in iCalendar text, parameters, and unknown components. Only one BOM at the start of the document is removed.
 - Search aligned recurrence periods directly, so valid distant occurrences such as an 11,000-year interval are not mistaken for the end of a sequence. Preserve COUNT from the original anchor, including matching and queries starting later in the sequence. Distinguish a proven empty cycle from an exhausted search budget.
 - Compute fixed intervals and civil arithmetic using exact calendar-cycle components. Avoid walking one day at a time for large intervals and preserve one-second differences near JavaScript's safe-year boundaries. Erlang continues to support arbitrary-precision civil years.
