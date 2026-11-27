@@ -589,3 +589,10 @@ pub fn continue_from_propagates_correlation_and_trace_test() {
   child.metadata.causation_id |> should.equal(Some("parent"))
   child.metadata.trace_id |> should.equal(Some("trace-1"))
 }
+
+pub fn occurred_between_includes_interior_time_test() {
+  // The event occurs on 2026-05-09, strictly inside the 8th..10th.
+  let event = scheduled_event("e", "p")
+  assert automata.event_occurred_between(event, from: at(8), until: at(10))
+  assert !automata.event_occurred_between(event, from: at(8), until: at(8))
+}

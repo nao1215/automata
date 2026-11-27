@@ -558,3 +558,75 @@ fn make_seconds(
   let value = duration.seconds(seconds)
   a.retry_fixed(delay: value, max_attempts: 2) |> result.map(fn(_) { value })
 }
+
+pub fn capped_exponential_accepts_cap_equal_to_initial_test() {
+  // "cap at least initial": a cap equal to the initial delay is valid and
+  // every retry then waits exactly that long.
+  let assert Ok(policy) =
+    a.retry_capped_exponential(
+      initial: ms(250),
+      multiplier: 3,
+      cap: ms(250),
+      max_attempts: 4,
+    )
+  let delays = collect_transient_delays(a.retry_start(policy:, seed: 1), 3, [])
+  assert delays == [250, 250, 250]
+}
+
+pub fn full_jitter_matches_reference_xorshift32_test() {
+  // Reference values come from an independent Xorshift32 (13/17/5) model:
+  // the context discards three draws, small bases (up to 2^32 - 1) take one
+  // draw modulo base + 1, larger bases combine 21 high bits of one draw with
+  // a second 32-bit draw before the modulo.
+  let jittered_first_delay = fn(base) {
+    let assert Ok(fixed) = a.retry_fixed(delay: ms(base), max_attempts: 2)
+    let policy = a.retry_jitter(policy: fixed, jitter: a.FullJitter)
+    first_delays(policy, [1])
+  }
+  assert jittered_first_delay(1000) == [403]
+  assert jittered_first_delay(4_294_967_295) == [307_599_695]
+  assert jittered_first_delay(1_099_511_627_776) == [341_701_100_088]
+}
+
+pub fn exponential_base_at_largest_safe_double_is_not_overflow_test() {
+  // initial 2^52 - 1 doubled is 2^53 - 2, still within the 2^53 - 1 ceiling,
+  // so the second retry is scheduled; the jittered delays are taken from the
+  // reference Xorshift32 model for seed 1.
+  let assert Ok(base_policy) =
+    a.retry_exponential(
+      initial: ms(4_503_599_627_370_495),
+      multiplier: 2,
+      max_attempts: 3,
+    )
+  let policy = a.retry_jitter(policy: base_policy, jitter: a.FullJitter)
+  let delays = collect_transient_delays(a.retry_start(policy:, seed: 1), 2, [])
+  assert delays == [1_575_941_863_708_625, 4_323_074_194_420_506]
+}
+
+pub fn exponential_base_past_safe_range_overflows_despite_jitter_test() {
+  // initial 2^52 doubled is 2^53, one past the ceiling: the base itself is
+  // out of range, so jitter must not turn it into a retry.
+  let assert Ok(base_policy) =
+    a.retry_exponential(
+      initial: ms(4_503_599_627_370_496),
+      multiplier: 2,
+      max_attempts: 3,
+    )
+  let policy = a.retry_jitter(policy: base_policy, jitter: a.FullJitter)
+  list.each([1, 2, 4], fn(seed) {
+    let assert a.Retry(delay: _, next: ctx1) =
+      a.retry_decide(ctx: a.retry_start(policy:, seed:), failure: a.Transient)
+    assert a.retry_decide(ctx: ctx1, failure: a.Transient)
+      == a.GiveUp(reason: a.DelayOverflow(at_attempt: 2))
+  })
+}
+
+pub fn fixed_delay_cumulative_overflow_gives_up_test() {
+  // Two 2^52 ms delays sum to 2^53, one past the cumulative ceiling.
+  let assert Ok(policy) =
+    a.retry_fixed(delay: ms(4_503_599_627_370_496), max_attempts: 5)
+  let assert a.Retry(delay: _, next: ctx1) =
+    a.retry_decide(ctx: a.retry_start(policy:, seed: 1), failure: a.Transient)
+  assert a.retry_decide(ctx: ctx1, failure: a.Transient)
+    == a.GiveUp(reason: a.DelayOverflow(at_attempt: 2))
+}

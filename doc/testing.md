@@ -22,23 +22,25 @@ Regression reproduction uses external child-process timeouts for old implementat
 
 ## Nightly runs
 
-`.github/workflows/nightly-property.yml` runs the Erlang suite ten times with `METAMON_RUNS_MULTIPLIER=10`, drawing a fresh seed for each pass. A failure report prints its seed so it can be replayed with `metamon.with_seed` and retained as a regression case.
+`.github/workflows/nightly-property.yml` runs the Erlang suite ten times with `METAMON_RUNS_MULTIPLIER=10`, drawing a fresh seed for each pass. A failure report prints its seed so it can be replayed with `metamon.Config(..metamon.default_config(), seed: Some(seed))` and retained as a regression case.
 
-## Historical mutation runs
+## Mutation testing
 
+`gleam run -m metamon/mutation` changes one operator, `!` or boolean literal in a module under `src/` at a time and runs `gleam test --target erlang` on each change. `.github/workflows/mutation.yml` mutates the modules a pull request or push changes and fails on a survivor that `doc/mutation/baseline.json` does not list; the weekly run mutates every module. `just mutation` runs it locally and `just mutation-record` records the baseline. The score is (killed + timed out) / (killed + timed out + lived). Some mutants loop forever and allocate until the machine runs out of memory; a test run stopped by an out-of-memory killer exits like a passing one, so run locally with `ERL_FLAGS="+hmax 268435456 +hmaxk true"`, which stops a process above 2 GiB of heap and counts the mutant as killed.
 
-The historical mutation runs below used `gleam_mutate.py` from the mutation-testing lab in nao1215/debimate, run by hand on a copy of the project. It rewrote one operator or boolean result at a time and ran `gleam test` on the Erlang target; a mutant that makes the suite hang past 120 seconds was counted as killed. For this run the script also mutated integer comparisons and `+` / `-`. The score is killed / (killed + lived).
+The first run (2026-11-27) scored 73.4% with 178 survivors. Tests were then added for retry caps, jitter against an independent Xorshift32 model and delay overflow at the safe-integer limit; iCalendar date and time components at their bounds, folding at exactly 75 octets and at UTF-8 boundaries, physical line numbers, the VALUE parameter and local DTSTART in a VTIMEZONE; cron field separators, single-value ranges, step spans, the value 7 outside day of week and missing operands; RRULE ordinal weekdays, extreme negative ordinals, UNTIL in year 9999, month 0, empty parts, COUNT with an exclusive boundary, intervals and occurrences across the 400-year Gregorian cycle and sub-daily phases, with expected values from python-dateutil; and daily steps through a leap year. The score rose to 89.8%. The 68 survivors left give the same results on Erlang, apart from the last group:
 
-The 2026-11-19 run covered the cron modules (`automata/cron/*`) and `automata/internal/calendar`, the code the differential test above exercises; the RRULE, iCalendar, event, filesystem and retry modules (about 450 more mutants) were not measured in that run. The paths below refer to the source layout at that date; these scores do not measure the consolidated API.
+- Code for JavaScript only (25): the exact-integer and year-joining checks of the civil calendar, which only matter where integers are doubles, and an error `civil_datetime` never returns on Erlang.
+- Branches that earlier checks rule out, or results nobody reads (12): content hashes compared only when both exist, day and ordinal 0 rejected by validation, a week-start flag never read after parsing, a `None` the caller discards, deleting a missing key, and periods longer than a day that always start at second 0.
+- Boundaries where both branches agree (7): a delay exactly at its cap, a modulo of 1, values already inside their field, leap-year checks repeated by an earlier pass, and seconds that are normalised anyway.
+- Shortcuts that only change the amount of work (13): the fixed-step fast path, early cut-offs in the time search, an over-counted COUNT that still reaches its limit, the skip-ahead guard, and one unit of the search budget.
+- Stop conditions another check repeats (9): extra empty periods scanned before UNTIL stops the search, and the guard against crons that never fire, which validation already rejects.
+- Mutants that recurse without end in the cron range builders (2): the tests kill them, but the test run is cut short in a way the runner counts as passing, so they are recorded as survivors.
 
-| Date | Files | Killed | Lived | Score |
-|---|---|---:|---:|---:|
-| 2026-11-19, first run | `cron/*`, `internal/calendar` (199; one mutant did not compile) | 146 | 53 | 73.4% |
-| 2026-11-19, after the calendar tests | same | 166 | 33 | 83.4% |
-
-The first run showed that `is_valid_time`, `is_valid_date` and `is_valid_datetime` were never asked about their exact bounds (23:59:59, 24:00, the last day of a month), that `days_since_epoch` had no reference values, and that stepping backwards across a minute, hour, day, month and year boundary was untested. The added calendar tests covered each, with `days_since_epoch` compared against Python's `date.toordinal()`. The survivors, grouped:
-
-- `cron/validator` (12): range and step parsing at their exact bounds and the quartz-syntax rejection.
-- `cron/iterator` (9) and `cron/evaluator` (3): the search jumps (`+ 1` to the next hour, day or month) where a smaller jump only costs extra steps and lands on the same answer, and the day-of-month / day-of-week shortcut branches.
-- `internal/calendar` (6): `> 0` against `>= 0` on step counts that are never zero there, and the `set_month` / `set_year` clamp at its exact bound.
-- `cron/parser` (3): whitespace characters other than space between fields.
+<!-- mutation:start -->
+| Module | Killed | Lived | Timed out | Score |
+|---|---:|---:|---:|---:|
+| `automata` | 597 | 67 | 2 | 89.9% |
+| `automata/retry/internal/prng` | 1 | 1 | 0 | 50.0% |
+| all | 598 | 68 | 2 | 89.8% |
+<!-- mutation:end -->

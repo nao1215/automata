@@ -28,7 +28,6 @@ import gleam/option.{None, Some}
 import gleam/string
 import metamon
 import metamon/generator.{type Generator}
-import metamon/generator/range
 
 const scan_minutes = 4320
 
@@ -47,11 +46,11 @@ fn expression_generator() -> Generator(String) {
 
 fn start_generator() -> Generator(a.ValidDateTime) {
   generator.map6(
-    generator.int(range.constant(2023, 2028)),
-    generator.int(range.constant(1, 12)),
-    generator.int(range.constant(1, 31)),
-    generator.int(range.constant(0, 23)),
-    generator.int(range.constant(0, 59)),
+    generator.int(generator.range(from: 2023, to: 2028)),
+    generator.int(generator.range(from: 1, to: 12)),
+    generator.int(generator.range(from: 1, to: 31)),
+    generator.int(generator.range(from: 0, to: 23)),
+    generator.int(generator.range(from: 0, to: 59)),
     generator.element_of([0, 0, 30, 59]),
     fn(year, month, day, hour, minute, second) {
       let day = int.min(day, old_internal_gregorian_days_in_month(year, month))
@@ -69,10 +68,10 @@ fn valid(datetime: a.DateTime) -> a.ValidDateTime {
 
 /// `validate` rejects expressions that can never fire (`31` in a
 /// February-only month field); those are outside the relations.
-fn with_valid(raw, check) -> Bool {
+fn with_valid(raw, check) -> Nil {
   case a.cron_validate(raw: raw) {
     Ok(spec) -> check(spec)
-    Error(_) -> True
+    Error(_) -> Nil
   }
 }
 
@@ -108,20 +107,24 @@ pub fn next_after_agrees_with_a_minute_by_minute_scan_test() -> Nil {
       let assert Ok(raw) = a.cron_parse_raw(input: expression)
       use spec <- with_valid(raw)
       let scanned = scan(spec, first_candidate(start), scan_minutes)
-      case next_cron(spec: spec, after: start), scanned {
+      let next = next_cron(spec: spec, after: start)
+      case scanned {
         // The scan found a firing in the window: it must be the answer.
-        Some(next), Some(first) -> a.datetime_value(next) == first
+        Some(first) -> {
+          assert option.map(next, a.datetime_value) == Some(first)
+        }
         // No firing in the window: the answer is matched and later.
-        Some(next), None ->
-          matches_cron(spec: spec, at: next)
-          && old_internal_calendar_greater_than(
+        None -> {
+          let assert Some(next) = next
+          assert matches_cron(spec: spec, at: next)
+          assert old_internal_calendar_greater_than(
             a.datetime_value(next),
             old_internal_calendar_add_minutes(
               first_candidate(start),
               scan_minutes - 1,
             ),
           )
-        None, _ -> False
+        }
       }
     },
   )
@@ -135,16 +138,11 @@ pub fn iterator_steps_follow_next_after_test() -> Nil {
       let assert Ok(raw) = a.cron_parse_raw(input: expression)
       use spec <- with_valid(raw)
       let iterator = iterate_cron(spec: spec, boundary: a.Exclusive(start))
-      case step_schedule(iterator: iterator) {
-        a.Yield(at: first, next: rest) ->
-          case step_schedule(iterator: rest) {
-            a.Yield(at: second, next: _) ->
-              Some(first) == next_cron(spec: spec, after: start)
-              && Some(second) == next_cron(spec: spec, after: first)
-            a.Done -> False
-          }
-        a.Done -> False
-      }
+      let assert a.Yield(at: first, next: rest) =
+        step_schedule(iterator: iterator)
+      let assert a.Yield(at: second, next: _) = step_schedule(iterator: rest)
+      assert Some(first) == next_cron(spec: spec, after: start)
+      assert Some(second) == next_cron(spec: spec, after: first)
     },
   )
 }
@@ -172,7 +170,7 @@ pub fn inclusive_boundary_yields_a_matching_start_test() -> Nil {
         a.Yield(at: at, next: _) -> Some(at)
         a.Done -> None
       }
-      first == expected
+      assert first == expected
     },
   )
 }

@@ -935,3 +935,83 @@ pub fn validate_rejects_signed_numbers_test() {
   validate("0 0 * * +1")
   |> should.equal(Error(a.CronInvalidAlias(a.CronDayOfWeek, "+1")))
 }
+
+fn validate_text(input: String) -> Result(a.Cron, a.CronValidationError) {
+  let assert Ok(raw) = a.cron_parse_raw(input: input)
+  a.cron_validate(raw: raw)
+}
+
+pub fn parse_splits_fields_on_tab_newline_and_carriage_return_test() {
+  assert a.cron_parse_raw(input: "1\t2\n3\r4 5")
+    == Ok(a.RawCron(
+      minute: "1",
+      hour: "2",
+      day_of_month: "3",
+      month: "4",
+      day_of_week: "5",
+    ))
+}
+
+pub fn value_seven_is_not_sunday_outside_day_of_week_test() {
+  // Only the day-of-week field folds 7 into 0 (Sunday). 2026-07-07 is a
+  // Tuesday, so "7 7 7 7 *" fires at 07:07 on that date.
+  let schedule = a.schedule_from_cron(parse_and_validate("7 7 7 7 *"))
+  assert a.schedule_matches(schedule, at: vdt(2026, 7, 7, 7, 7, 0)) == Ok(True)
+  assert a.schedule_next(schedule, after: vdt(2026, 1, 1, 0, 0, 0))
+    == Ok(Some(vdt(2026, 7, 7, 7, 7, 0)))
+}
+
+pub fn validate_accepts_single_value_ranges_test() {
+  // A range whose two ends are equal selects exactly that value.
+  let assert Ok(spec) = validate_text("5-5 5-5/2 * * *")
+  assert a.cron_to_string(spec: spec) == "5-5 5-5/2 * * *"
+  let schedule = a.schedule_from_cron(spec)
+  assert a.schedule_next(schedule, after: vdt(2026, 1, 1, 0, 0, 0))
+    == Ok(Some(vdt(2026, 1, 1, 5, 5, 0)))
+  let options = a.cron_options()
+  let assert Ok(typed) =
+    a.cron_new(
+      a.CronOptions(
+        ..options,
+        minute: a.CronValues([a.CronRange(5, 5)]),
+        hour: a.CronValues([a.CronStep(a.CronStepRange(5, 5), 2)]),
+      ),
+    )
+  assert a.cron_to_string(spec: typed) == "5-5 5-5/2 * * *"
+}
+
+pub fn validate_accepts_july_thirty_first_test() {
+  assert result.is_ok(validate_text("0 0 31 7 *"))
+}
+
+pub fn validate_step_must_fit_field_span_test() {
+  // A step may be at most the number of values in its field: 12 for months,
+  // 31 for days of the month, 60 for minutes.
+  assert result.is_ok(validate_text("0 0 */31 */12 *"))
+  assert validate_text("0 0 * */13 *")
+    == Error(a.CronInvalidStep(field: a.CronMonth, value: "*/13"))
+  assert validate_text("0 0 */32 * *")
+    == Error(a.CronInvalidStep(field: a.CronDayOfMonth, value: "*/32"))
+  assert validate_text("*/0 * * * *")
+    == Error(a.CronInvalidStep(field: a.CronMinute, value: "*/0"))
+  assert validate_text("*/61 * * * *")
+    == Error(a.CronInvalidStep(field: a.CronMinute, value: "*/61"))
+}
+
+pub fn validate_reports_missing_range_and_step_operands_test() {
+  assert validate_text("/5 * * * *")
+    == Error(a.CronInvalidStep(field: a.CronMinute, value: "/5"))
+  assert validate_text("5- * * * *")
+    == Error(a.CronInvalidRange(field: a.CronMinute, value: "5-"))
+  assert validate_text("-5 * * * *")
+    == Error(a.CronInvalidRange(field: a.CronMinute, value: "-5"))
+  assert validate_text("5-/2 * * * *")
+    == Error(a.CronInvalidRange(field: a.CronMinute, value: "5-"))
+  assert validate_text("-5/2 * * * *")
+    == Error(a.CronInvalidRange(field: a.CronMinute, value: "-5"))
+}
+
+pub fn validate_rejects_quartz_hash_letter_test() {
+  assert validate_text("H * * * *")
+    == Error(a.CronUnsupportedSyntax(field: a.CronMinute, value: "H"))
+}

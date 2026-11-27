@@ -175,3 +175,10 @@ fn old_fsevent_path_path_equals(
 ) -> Bool {
   left == right
 }
+
+pub fn path_starts_with_longer_prefix_is_false_test() {
+  // A parent is not below its own child, even though the child's segments
+  // begin with all of the parent's.
+  assert !a.path_starts_with(path: ok("/var"), prefix: ok("/var/log"))
+  assert !a.path_starts_with(path: ok("/"), prefix: ok("/var"))
+}

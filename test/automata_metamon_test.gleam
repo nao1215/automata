@@ -7,7 +7,6 @@ import gleam/time/calendar
 import gleam/time/duration
 import metamon
 import metamon/generator
-import metamon/generator/range
 
 type Parity {
   Even
@@ -30,21 +29,27 @@ fn parity_machine() -> a.Automaton(Parity, Int) {
 
 pub fn parity_accepts_iff_even_count_of_ones_test() {
   metamon.forall(
-    generator.list_of(generator.int(range.constant(0, 3)), range.constant(0, 8)),
+    generator.list_of(
+      generator.int(generator.range(from: 0, to: 3)),
+      length: generator.range(from: 0, to: 8),
+    ),
     fn(symbols) {
       let ones = list.count(symbols, fn(symbol) { symbol == 1 })
-      a.accepts(parity_machine(), symbols) == { ones % 2 == 0 }
+      assert a.accepts(parity_machine(), symbols) == { ones % 2 == 0 }
     },
   )
 }
 
 pub fn parity_acceptance_invariant_under_appending_pair_of_ones_test() {
   metamon.forall(
-    generator.list_of(generator.int(range.constant(0, 3)), range.constant(0, 6)),
+    generator.list_of(
+      generator.int(generator.range(from: 0, to: 3)),
+      length: generator.range(from: 0, to: 6),
+    ),
     fn(symbols) {
       let machine = parity_machine()
-      a.accepts(machine, symbols)
-      == a.accepts(machine, list.append(symbols, [1, 1]))
+      assert a.accepts(machine, symbols)
+        == a.accepts(machine, list.append(symbols, [1, 1]))
     },
   )
 }
@@ -53,92 +58,108 @@ pub fn parity_step_is_deterministic_test() {
   metamon.forall(
     generator.tuple2(
       generator.element_of([Even, Odd]),
-      generator.int(range.constant(0, 3)),
+      generator.int(generator.range(from: 0, to: 3)),
     ),
     fn(pair) {
       let machine = parity_machine()
       let #(state, symbol) = pair
-      transition(machine, state, symbol) == transition(machine, state, symbol)
+      assert transition(machine, state, symbol)
+        == transition(machine, state, symbol)
     },
   )
 }
 
 pub fn duration_from_milliseconds_round_trip_test() {
-  metamon.forall_round_trip_partial(
-    gen: generator.int(range.constant(-1000, 1_000_000)),
-    name: "duration_from_milliseconds_round_trip",
-    encode: fn(value) {
-      case make_milliseconds(milliseconds: value) {
-        Ok(duration) -> Ok(duration)
-        Error(_) -> Error(Nil)
+  // A value the retry policy rejects as a delay is out of scope, but at
+  // least one run must reach the round trip.
+  metamon.forall(
+    generator.int(generator.range(from: -1000, to: 1_000_000)),
+    fn(value) {
+      let accepted = make_milliseconds(milliseconds: value)
+      metamon.cover(
+        at_least: 1.0,
+        label: "encoder_accepted",
+        when: result.is_ok(accepted),
+      )
+      case accepted {
+        Ok(duration) -> {
+          assert duration.to_milliseconds(duration) == value
+        }
+        Error(_) -> Nil
       }
     },
-    decode: fn(duration) { Ok(duration.to_milliseconds(duration)) },
   )
 }
 
 pub fn duration_from_seconds_milliseconds_consistent_test() {
-  metamon.forall(generator.int(range.constant(0, 100_000)), fn(seconds) {
-    let assert Ok(duration) = make_seconds(seconds: seconds)
-    duration.to_milliseconds(duration) == seconds * 1000
-    && duration_whole_seconds(duration: duration) == seconds
-  })
+  metamon.forall(
+    generator.int(generator.range(from: 0, to: 100_000)),
+    fn(seconds) {
+      let assert Ok(duration) = make_seconds(seconds: seconds)
+      assert duration.to_milliseconds(duration) == seconds * 1000
+      assert duration_whole_seconds(duration: duration) == seconds
+    },
+  )
 }
 
 pub fn no_retry_always_gives_up_on_transient_test() {
-  metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
-    let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
-    case a.retry_decide(ctx: context, failure: a.Transient) {
-      a.GiveUp(reason: a.PolicyDisallowsRetry) -> True
-      _ -> False
-    }
-  })
+  metamon.forall(
+    generator.int(generator.range(from: 0, to: 1_000_000)),
+    fn(seed) {
+      let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
+      assert a.retry_decide(ctx: context, failure: a.Transient)
+        == a.GiveUp(reason: a.PolicyDisallowsRetry)
+    },
+  )
 }
 
 pub fn permanent_failure_always_gives_up_test() {
-  metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
-    let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
-    case a.retry_decide(ctx: context, failure: a.Permanent) {
-      a.GiveUp(reason: a.PermanentFailureSignaled(at_attempt: 1)) -> True
-      _ -> False
-    }
-  })
+  metamon.forall(
+    generator.int(generator.range(from: 0, to: 1_000_000)),
+    fn(seed) {
+      let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
+      assert a.retry_decide(ctx: context, failure: a.Permanent)
+        == a.GiveUp(reason: a.PermanentFailureSignaled(at_attempt: 1))
+    },
+  )
 }
 
 pub fn fresh_context_has_zero_attempt_test() {
-  metamon.forall(generator.int(range.constant(0, 1_000_000)), fn(seed) {
-    let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
-    a.retry_current_attempt(ctx: context) == 0
-    && duration.to_milliseconds(a.retry_cumulative_delay(ctx: context)) == 0
-  })
+  metamon.forall(
+    generator.int(generator.range(from: 0, to: 1_000_000)),
+    fn(seed) {
+      let context = a.retry_start(policy: a.retry_no_retry(), seed: seed)
+      assert a.retry_current_attempt(ctx: context) == 0
+      assert duration.to_milliseconds(a.retry_cumulative_delay(ctx: context))
+        == 0
+    },
+  )
 }
 
 pub fn fixed_policy_max_attempts_must_be_positive_test() {
-  metamon.forall(generator.int(range.constant(-100, 0)), fn(invalid_max) {
-    let assert Ok(delay) = make_milliseconds(milliseconds: 100)
-    case a.retry_fixed(delay: delay, max_attempts: invalid_max) {
-      Error(a.MaxAttemptsMustBePositive(actual: actual)) ->
-        actual == invalid_max
-      _ -> False
-    }
-  })
+  metamon.forall(
+    generator.int(generator.range(from: -100, to: 0)),
+    fn(invalid_max) {
+      let assert Ok(delay) = make_milliseconds(milliseconds: 100)
+      assert a.retry_fixed(delay: delay, max_attempts: invalid_max)
+        == Error(a.MaxAttemptsMustBePositive(actual: invalid_max))
+    },
+  )
 }
 
 pub fn exponential_policy_multiplier_must_be_at_least_two_test() {
-  metamon.forall(generator.int(range.constant(-10, 1)), fn(bad_multiplier) {
-    let assert Ok(initial) = make_milliseconds(milliseconds: 100)
-    case
-      a.retry_exponential(
-        initial: initial,
-        multiplier: bad_multiplier,
-        max_attempts: 5,
-      )
-    {
-      Error(a.MultiplierMustBeAtLeastTwo(actual: actual)) ->
-        actual == bad_multiplier
-      _ -> False
-    }
-  })
+  metamon.forall(
+    generator.int(generator.range(from: -10, to: 1)),
+    fn(bad_multiplier) {
+      let assert Ok(initial) = make_milliseconds(milliseconds: 100)
+      assert a.retry_exponential(
+          initial: initial,
+          multiplier: bad_multiplier,
+          max_attempts: 5,
+        )
+        == Error(a.MultiplierMustBeAtLeastTwo(actual: bad_multiplier))
+    },
+  )
 }
 
 fn ical_dtstamp() -> a.DateTime {
@@ -158,7 +179,10 @@ fn ical_dtstamp() -> a.DateTime {
 /// (no control characters that the lexer would reject).
 pub fn ical_parse_encode_parse_idempotent_test() {
   metamon.forall(
-    generator.string_printable_ascii(range.constant(0, 40)),
+    generator.string(
+      of: generator.PrintableAscii,
+      length: generator.range(from: 0, to: 40),
+    ),
     fn(summary) {
       let cal =
         a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
@@ -167,14 +191,9 @@ pub fn ical_parse_encode_parse_idempotent_test() {
           |> a.ical_with_summary(summary),
         )
       let encoded = encode_calendar(cal)
-      case a.ical_parse(encoded) {
-        Error(_) -> False
-        Ok(decoded) ->
-          case a.ical_events(decoded) {
-            [event] -> a.ical_event_summary(event) == Some(summary)
-            _ -> False
-          }
-      }
+      let assert Ok(decoded) = a.ical_parse(encoded)
+      assert list.map(a.ical_events(decoded), a.ical_event_summary)
+        == [Some(summary)]
     },
   )
 }
@@ -182,10 +201,13 @@ pub fn ical_parse_encode_parse_idempotent_test() {
 /// Every folded physical line must respect the 75-octet boundary.
 pub fn ical_fold_respects_octet_limit_test() {
   metamon.forall(
-    generator.string_printable_ascii(range.constant(0, 200)),
+    generator.string(
+      of: generator.PrintableAscii,
+      length: generator.range(from: 0, to: 200),
+    ),
     fn(input) {
       let lines = old_ical_emitter_fold_line(input)
-      list.all(lines, fn(line) { string.byte_size(line) <= 75 })
+      assert list.filter(lines, fn(line) { string.byte_size(line) > 75 }) == []
     },
   )
 }
@@ -194,17 +216,25 @@ pub fn ical_fold_respects_octet_limit_test() {
 /// the four reserved code points; non-reserved code points pass
 /// through unchanged.
 pub fn ical_escape_preserves_alpha_test() {
-  metamon.forall(generator.string_alpha(range.constant(0, 60)), fn(s) {
-    case
-      string.contains(s, "\\")
-      || string.contains(s, ",")
-      || string.contains(s, ";")
-      || string.contains(s, "\n")
-    {
-      True -> True
-      False -> old_ical_emitter_escape_text(s) == s
-    }
-  })
+  metamon.forall(
+    generator.string(
+      of: generator.Alphabetic,
+      length: generator.range(from: 0, to: 60),
+    ),
+    fn(s) {
+      case
+        string.contains(s, "\\")
+        || string.contains(s, ",")
+        || string.contains(s, ";")
+        || string.contains(s, "\n")
+      {
+        True -> Nil
+        False -> {
+          assert old_ical_emitter_escape_text(s) == s
+        }
+      }
+    },
+  )
 }
 
 fn duration_whole_seconds(duration value: duration.Duration) -> Int {

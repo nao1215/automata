@@ -525,3 +525,39 @@ fn step_schedule(iterator iterator: a.OccurrenceIterator) -> a.IterStep {
   let assert Ok(value) = a.schedule_step(iterator)
   value
 }
+
+fn collect_steps(
+  iterator: a.OccurrenceIterator,
+  count: Int,
+  acc: List(String),
+) -> List(String) {
+  case count {
+    0 -> list.reverse(acc)
+    _ ->
+      case step_schedule(iterator: iterator) {
+        a.Done -> list.reverse(acc)
+        a.Yield(at, next) -> collect_steps(next, count - 1, [iso(at), ..acc])
+      }
+  }
+}
+
+pub fn daily_steps_visit_every_date_of_a_leap_year_test() {
+  // 2024 is a leap year: month lengths 31 29 31 30 31 30 31 31 30 31 30 31.
+  let lengths = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  let expected =
+    list.index_map(lengths, fn(length, index) {
+      list.repeat(Nil, length)
+      |> list.index_map(fn(_, day) {
+        iso(vdt(2024, index + 1, day + 1, 6, 0, 0))
+      })
+    })
+    |> list.flatten
+  let assert Ok(schedule) =
+    a.schedule_every(interval_seconds: 86_400, anchor: vdt(2024, 1, 1, 6, 0, 0))
+  let assert Ok(iterator) =
+    a.schedule_iterator(
+      schedule,
+      boundary: a.Inclusive(vdt(2024, 1, 1, 6, 0, 0)),
+    )
+  assert collect_steps(iterator, 366, []) == expected
+}
