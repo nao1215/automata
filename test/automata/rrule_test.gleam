@@ -1296,3 +1296,494 @@ pub fn repeated_weekdays_are_normalized_like_other_lists_test() {
   a.rrule_to_options(rule).by_day
   |> should.equal(Some([a.EveryWeekday(calendar.Friday)]))
 }
+
+pub fn ordinal_weekday_occurrences_match_dateutil_test() {
+  // Reference lists from python-dateutil 2.9.0
+  // (`rrulestr(rule, dtstart=anchor).xafter(anchor, count=n, inc=True)`).
+  // They cover positive and negative ordinals, ordinals that exist only in
+  // some months (5MO, -5MO), Mondays on the 31st, and year-scoped ordinals.
+  let cases = [
+    #("FREQ=MONTHLY;BYDAY=2MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 1, 12, 9, 0, 0), [
+      "2026-01-12T09:00:00", "2026-02-09T09:00:00", "2026-03-09T09:00:00",
+      "2026-04-13T09:00:00",
+    ]),
+    #("FREQ=MONTHLY;BYDAY=-1MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 1, 26, 9, 0, 0), [
+      "2026-01-26T09:00:00", "2026-02-23T09:00:00", "2026-03-30T09:00:00",
+      "2026-04-27T09:00:00", "2026-05-25T09:00:00", "2026-06-29T09:00:00",
+      "2026-07-27T09:00:00", "2026-08-31T09:00:00",
+    ]),
+    #("FREQ=MONTHLY;BYDAY=-2MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 1, 19, 9, 0, 0), [
+      "2026-01-19T09:00:00", "2026-02-16T09:00:00", "2026-03-23T09:00:00",
+      "2026-04-20T09:00:00",
+    ]),
+    #("FREQ=MONTHLY;BYDAY=5MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 3, 30, 9, 0, 0), [
+      "2026-03-30T09:00:00", "2026-06-29T09:00:00", "2026-08-31T09:00:00",
+      "2026-11-30T09:00:00",
+    ]),
+    #("FREQ=MONTHLY;BYDAY=-5MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 3, 2, 9, 0, 0), [
+      "2026-03-02T09:00:00", "2026-06-01T09:00:00", "2026-08-03T09:00:00",
+      "2026-11-02T09:00:00",
+    ]),
+    #("FREQ=YEARLY;BYDAY=-1MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 12, 28, 9, 0, 0), [
+      "2026-12-28T09:00:00", "2027-12-27T09:00:00", "2028-12-25T09:00:00",
+      "2029-12-31T09:00:00",
+    ]),
+    #("FREQ=YEARLY;BYDAY=20MO;BYHOUR=9;BYMINUTE=0", vdt(2026, 5, 18, 9, 0, 0), [
+      "2026-05-18T09:00:00", "2027-05-17T09:00:00", "2028-05-15T09:00:00",
+    ]),
+    #(
+      "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-29;BYHOUR=9;BYMINUTE=0",
+      vdt(2024, 2, 1, 9, 0, 0),
+      ["2024-02-01T09:00:00", "2028-02-01T09:00:00"],
+    ),
+  ]
+  list.each(cases, fn(c) {
+    let #(rule, anchor, expected) = c
+    assert first_occurrences(rule, anchor, list.length(expected)) == expected
+  })
+}
+
+pub fn ordinal_weekday_matches_only_the_selected_monday_test() {
+  // January 2026 has Mondays on the 5th, 12th, 19th and 26th.
+  let anchor = vdt(2026, 1, 5, 9, 0, 0)
+  let check = fn(rule, day) {
+    matches_rrule(
+      spec: parse_and_validate(rule),
+      anchor: anchor,
+      at: vdt(2026, 1, day, 9, 0, 0),
+    )
+  }
+  let second = "FREQ=MONTHLY;BYDAY=2MO;BYHOUR=9;BYMINUTE=0"
+  let last = "FREQ=MONTHLY;BYDAY=-1MO;BYHOUR=9;BYMINUTE=0"
+  let fifth = "FREQ=MONTHLY;BYDAY=5MO;BYHOUR=9;BYMINUTE=0"
+  let minus_fifth = "FREQ=MONTHLY;BYDAY=-5MO;BYHOUR=9;BYMINUTE=0"
+  assert list.map([5, 12, 19, 26], check(second, _))
+    == [Ok(False), Ok(True), Ok(False), Ok(False)]
+  assert list.map([5, 12, 19, 26], check(last, _))
+    == [Ok(False), Ok(False), Ok(False), Ok(True)]
+  assert list.map([5, 12, 19, 26], check(fifth, _))
+    == [Ok(False), Ok(False), Ok(False), Ok(False)]
+  assert list.map([5, 12, 19, 26], check(minus_fifth, _))
+    == [Ok(False), Ok(False), Ok(False), Ok(False)]
+}
+
+pub fn validate_accepts_extreme_negative_ordinals_and_month_days_test() {
+  // RFC 5545 allows -5..-1 / 1..5 for MONTHLY and -53..-1 / 1..53 for
+  // YEARLY; BYMONTHDAY=-29 in February exists in leap years only, -30 never.
+  let spec = parse_and_validate("FREQ=YEARLY;BYDAY=-53MO")
+  assert a.rrule_to_string(spec: spec) == "FREQ=YEARLY;BYDAY=-53MO"
+  let assert Ok(raw) =
+    a.rrule_parse_raw(input: "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-30")
+  assert a.rrule_validate(raw: raw)
+    == Error(a.RruleImpossibleDate(by_month: "2", by_month_day: "-30"))
+}
+
+pub fn until_on_december_thirty_first_of_year_9999_is_valid_test() {
+  let spec = parse_and_validate("FREQ=DAILY;UNTIL=20261231")
+  assert a.rrule_to_string(spec: spec) == "FREQ=DAILY;UNTIL=20261231"
+  let spec = parse_and_validate("FREQ=DAILY;UNTIL=20261231T235959Z")
+  assert a.rrule_to_string(spec: spec) == "FREQ=DAILY;UNTIL=20261231T235959Z"
+  assert result.is_ok(
+    a.rrule_options(a.Daily)
+    |> old_rrule_with_until_date(make_date(year: 9999, month: 12, day: 31))
+    |> old_rrule_build,
+  )
+}
+
+pub fn month_zero_is_out_of_range_in_text_and_typed_rules_test() {
+  let expected =
+    Error(a.RruleOutOfRange(part: a.ByMonthPart, min: 1, max: 12, actual: 0))
+  let assert Ok(raw) = a.rrule_parse_raw(input: "FREQ=YEARLY;BYMONTH=0")
+  assert a.rrule_validate(raw: raw) == expected
+  assert a.rrule_new(
+      a.RecurrenceOptions(..a.rrule_options(a.Yearly), by_month: Some([0])),
+    )
+    == expected
+}
+
+pub fn parse_rejects_part_with_empty_value_test() {
+  assert a.rrule_parse_raw(input: "FREQ=DAILY;COUNT=")
+    == Error(a.RruleParseEmptyPart(value: "COUNT="))
+  assert a.rrule_parse_raw(input: "FREQ=DAILY;=5")
+    == Error(a.RruleParseEmptyPart(value: "=5"))
+}
+
+// Reference values below come from python-dateutil 2.9.0. Sub-daily rules
+// were evaluated from a DTSTART moved forward by a whole number of intervals,
+// which keeps the same occurrence set without COUNT. The searches cross the
+// year 2400, where the 400-year Gregorian cycle restarts.
+
+pub fn occurrences_across_gregorian_cycle_match_dateutil_test() {
+  let cases = [
+    #(
+      "FREQ=DAILY;INTERVAL=5",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2399, 12, 25, 0, 0, 0),
+      [
+        "2399-12-29T08:00:00",
+        "2400-01-03T08:00:00",
+        "2400-01-08T08:00:00",
+        "2400-01-13T08:00:00",
+      ],
+    ),
+    #(
+      "FREQ=DAILY;INTERVAL=4",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2399, 12, 25, 0, 0, 0),
+      [
+        "2399-12-25T08:00:00",
+        "2399-12-29T08:00:00",
+        "2400-01-02T08:00:00",
+        "2400-01-06T08:00:00",
+      ],
+    ),
+    #(
+      "FREQ=WEEKLY;INTERVAL=5;BYDAY=MO,FR",
+      vdt(2001, 3, 7, 8, 0, 0),
+      vdt(2399, 11, 1, 0, 0, 0),
+      [
+        "2399-11-29T08:00:00",
+        "2399-12-03T08:00:00",
+        "2400-01-03T08:00:00",
+        "2400-01-07T08:00:00",
+        "2400-02-07T08:00:00",
+      ],
+    ),
+    #(
+      "FREQ=MONTHLY;INTERVAL=7;BYMONTHDAY=10,31",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2398, 1, 1, 0, 0, 0),
+      [
+        "2398-06-10T08:00:00",
+        "2399-01-10T08:00:00",
+        "2399-01-31T08:00:00",
+        "2399-08-10T08:00:00",
+        "2399-08-31T08:00:00",
+      ],
+    ),
+    #(
+      "FREQ=YEARLY;INTERVAL=7",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2390, 1, 1, 0, 0, 0),
+      ["2393-03-10T08:00:00", "2400-03-10T08:00:00", "2407-03-10T08:00:00"],
+    ),
+    #(
+      "FREQ=HOURLY;INTERVAL=5;BYHOUR=1,13,22",
+      vdt(2001, 3, 10, 8, 30, 0),
+      vdt(2399, 12, 30, 0, 0, 0),
+      [
+        "2400-01-01T01:30:00",
+        "2400-01-02T22:30:00",
+        "2400-01-03T13:30:00",
+        "2400-01-06T01:30:00",
+        "2400-01-07T22:30:00",
+        "2400-01-08T13:30:00",
+      ],
+    ),
+    #(
+      "FREQ=MINUTELY;INTERVAL=7;BYHOUR=9;BYMINUTE=0,13,59",
+      vdt(2001, 3, 10, 8, 30, 0),
+      vdt(2399, 12, 30, 0, 0, 0),
+      [
+        "2399-12-31T09:59:00",
+        "2400-01-02T09:00:00",
+        "2400-01-05T09:13:00",
+        "2400-01-07T09:59:00",
+        "2400-01-09T09:00:00",
+        "2400-01-12T09:13:00",
+      ],
+    ),
+    #(
+      "FREQ=SECONDLY;INTERVAL=7;BYHOUR=9;BYMINUTE=5",
+      vdt(2001, 3, 10, 8, 30, 0),
+      vdt(2399, 12, 30, 0, 0, 0),
+      [
+        "2399-12-30T09:05:05",
+        "2399-12-30T09:05:12",
+        "2399-12-30T09:05:19",
+        "2399-12-30T09:05:26",
+        "2399-12-30T09:05:33",
+        "2399-12-30T09:05:40",
+      ],
+    ),
+    #(
+      "FREQ=HOURLY;INTERVAL=7",
+      vdt(2001, 3, 10, 8, 30, 0),
+      vdt(2399, 12, 31, 12, 0, 0),
+      [
+        "2399-12-31T18:30:00",
+        "2400-01-01T01:30:00",
+        "2400-01-01T08:30:00",
+        "2400-01-01T15:30:00",
+      ],
+    ),
+    #(
+      "FREQ=MINUTELY;INTERVAL=1000",
+      vdt(2001, 3, 10, 8, 30, 0),
+      vdt(2399, 12, 31, 12, 0, 0),
+      [
+        "2399-12-31T20:30:00",
+        "2400-01-01T13:10:00",
+        "2400-01-02T05:50:00",
+        "2400-01-02T22:30:00",
+      ],
+    ),
+  ]
+  list.each(cases, fn(c) {
+    let #(rule, anchor, boundary, expected) = c
+    let assert Ok(iterator) =
+      iterate_rrule(
+        spec: parse_and_validate(rule),
+        anchor: anchor,
+        boundary: a.Inclusive(boundary),
+      )
+    let actual = take_occurrences(iterator, list.length(expected), [])
+    assert actual == expected
+    // Every yielded occurrence must also be reported as a match.
+    let schedule =
+      a.schedule_from_rrule(parse_and_validate(rule), anchor: anchor)
+    let assert Ok(iterator) =
+      a.schedule_iterator(schedule, boundary: a.Inclusive(boundary))
+    assert occurrence_matches(schedule, iterator, list.length(expected), [])
+      == list.repeat(Ok(True), list.length(expected))
+  })
+}
+
+fn occurrence_matches(
+  schedule: a.Schedule,
+  iterator: a.OccurrenceIterator,
+  count: Int,
+  acc: List(Result(Bool, a.ScheduleError)),
+) -> List(Result(Bool, a.ScheduleError)) {
+  case count {
+    0 -> list.reverse(acc)
+    _ ->
+      case step_schedule(iterator: iterator) {
+        a.Done -> list.reverse(acc)
+        a.Yield(at, next) ->
+          occurrence_matches(schedule, next, count - 1, [
+            a.schedule_matches(schedule, at: at),
+            ..acc
+          ])
+      }
+  }
+}
+
+pub fn matches_across_gregorian_cycle_agree_with_dateutil_test() {
+  let cases = [
+    #("FREQ=DAILY;INTERVAL=5", vdt(2001, 3, 10, 8, 0, 0), [
+      #(vdt(2399, 12, 30, 8, 0, 0), False),
+      #(vdt(2400, 1, 5, 8, 0, 0), False),
+      #(vdt(2400, 1, 29, 8, 0, 0), False),
+      #(vdt(2400, 1, 4, 8, 0, 0), False),
+      #(vdt(2400, 1, 10, 8, 0, 0), False),
+      #(vdt(2400, 2, 3, 8, 0, 0), False),
+      #(vdt(2400, 1, 9, 8, 0, 0), False),
+      #(vdt(2400, 1, 15, 8, 0, 0), False),
+      #(vdt(2400, 2, 8, 8, 0, 0), False),
+    ]),
+    #("FREQ=WEEKLY;INTERVAL=5;BYDAY=MO,FR", vdt(2001, 3, 7, 8, 0, 0), [
+      #(vdt(2399, 11, 30, 8, 0, 0), False),
+      #(vdt(2399, 12, 6, 8, 0, 0), False),
+      #(vdt(2399, 12, 30, 8, 0, 0), False),
+      #(vdt(2399, 12, 4, 8, 0, 0), False),
+      #(vdt(2399, 12, 10, 8, 0, 0), False),
+      #(vdt(2400, 1, 3, 8, 0, 0), True),
+      #(vdt(2400, 1, 4, 8, 0, 0), False),
+      #(vdt(2400, 1, 10, 8, 0, 0), False),
+      #(vdt(2400, 2, 3, 8, 0, 0), False),
+    ]),
+    #("FREQ=MONTHLY;INTERVAL=7;BYMONTHDAY=10,31", vdt(2001, 3, 10, 8, 0, 0), [
+      #(vdt(2398, 6, 11, 8, 0, 0), False),
+      #(vdt(2398, 6, 17, 8, 0, 0), False),
+      #(vdt(2398, 7, 11, 8, 0, 0), False),
+      #(vdt(2399, 1, 11, 8, 0, 0), False),
+      #(vdt(2399, 1, 17, 8, 0, 0), False),
+      #(vdt(2399, 2, 10, 8, 0, 0), False),
+      #(vdt(2399, 2, 1, 8, 0, 0), False),
+      #(vdt(2399, 2, 7, 8, 0, 0), False),
+      #(vdt(2399, 3, 3, 8, 0, 0), False),
+    ]),
+    #("FREQ=YEARLY;INTERVAL=7", vdt(2001, 3, 10, 8, 0, 0), [
+      #(vdt(2393, 3, 11, 8, 0, 0), False),
+      #(vdt(2393, 3, 17, 8, 0, 0), False),
+      #(vdt(2393, 4, 10, 8, 0, 0), False),
+      #(vdt(2400, 3, 11, 8, 0, 0), False),
+      #(vdt(2400, 3, 17, 8, 0, 0), False),
+      #(vdt(2400, 4, 10, 8, 0, 0), False),
+      #(vdt(2407, 3, 11, 8, 0, 0), False),
+      #(vdt(2407, 3, 17, 8, 0, 0), False),
+      #(vdt(2407, 4, 10, 8, 0, 0), False),
+    ]),
+    #("FREQ=HOURLY;INTERVAL=5;BYHOUR=1,13,22", vdt(2001, 3, 10, 8, 30, 0), [
+      #(vdt(2400, 1, 2, 1, 30, 0), False),
+      #(vdt(2400, 1, 8, 1, 30, 0), False),
+      #(vdt(2400, 2, 1, 1, 30, 0), False),
+      #(vdt(2400, 1, 3, 22, 30, 0), False),
+      #(vdt(2400, 1, 9, 22, 30, 0), False),
+      #(vdt(2400, 2, 2, 22, 30, 0), False),
+      #(vdt(2400, 1, 4, 13, 30, 0), False),
+      #(vdt(2400, 1, 10, 13, 30, 0), False),
+      #(vdt(2400, 2, 3, 13, 30, 0), False),
+    ]),
+    #(
+      "FREQ=MINUTELY;INTERVAL=7;BYHOUR=9;BYMINUTE=0,13,59",
+      vdt(2001, 3, 10, 8, 30, 0),
+      [
+        #(vdt(2400, 1, 1, 9, 59, 0), False),
+        #(vdt(2400, 1, 7, 9, 59, 0), True),
+        #(vdt(2400, 1, 31, 9, 59, 0), False),
+        #(vdt(2400, 1, 3, 9, 0, 0), False),
+        #(vdt(2400, 1, 9, 9, 0, 0), True),
+        #(vdt(2400, 2, 2, 9, 0, 0), False),
+        #(vdt(2400, 1, 6, 9, 13, 0), False),
+        #(vdt(2400, 1, 12, 9, 13, 0), True),
+        #(vdt(2400, 2, 5, 9, 13, 0), False),
+      ],
+    ),
+    #(
+      "FREQ=SECONDLY;INTERVAL=7;BYHOUR=9;BYMINUTE=5",
+      vdt(2001, 3, 10, 8, 30, 0),
+      [
+        #(vdt(2399, 12, 31, 9, 5, 5), False),
+        #(vdt(2400, 1, 6, 9, 5, 5), True),
+        #(vdt(2400, 1, 30, 9, 5, 5), False),
+        #(vdt(2399, 12, 31, 9, 5, 12), False),
+        #(vdt(2400, 1, 6, 9, 5, 12), True),
+        #(vdt(2400, 1, 30, 9, 5, 12), False),
+        #(vdt(2399, 12, 31, 9, 5, 19), False),
+        #(vdt(2400, 1, 6, 9, 5, 19), True),
+        #(vdt(2400, 1, 30, 9, 5, 19), False),
+      ],
+    ),
+    #("FREQ=HOURLY;INTERVAL=7", vdt(2001, 3, 10, 8, 30, 0), [
+      #(vdt(2400, 1, 1, 18, 30, 0), False),
+      #(vdt(2400, 1, 7, 18, 30, 0), True),
+      #(vdt(2400, 1, 31, 18, 30, 0), False),
+      #(vdt(2400, 1, 2, 1, 30, 0), False),
+      #(vdt(2400, 1, 8, 1, 30, 0), True),
+      #(vdt(2400, 2, 1, 1, 30, 0), False),
+      #(vdt(2400, 1, 2, 8, 30, 0), False),
+      #(vdt(2400, 1, 8, 8, 30, 0), True),
+      #(vdt(2400, 2, 1, 8, 30, 0), False),
+    ]),
+    #("FREQ=MINUTELY;INTERVAL=1000", vdt(2001, 3, 10, 8, 30, 0), [
+      #(vdt(2400, 1, 1, 20, 30, 0), False),
+      #(vdt(2400, 1, 7, 20, 30, 0), False),
+      #(vdt(2400, 1, 31, 20, 30, 0), False),
+      #(vdt(2400, 1, 2, 13, 10, 0), False),
+      #(vdt(2400, 1, 8, 13, 10, 0), False),
+      #(vdt(2400, 2, 1, 13, 10, 0), False),
+      #(vdt(2400, 1, 3, 5, 50, 0), False),
+      #(vdt(2400, 1, 9, 5, 50, 0), False),
+      #(vdt(2400, 2, 2, 5, 50, 0), False),
+    ]),
+  ]
+  list.each(cases, fn(c) {
+    let #(rule, anchor, probes) = c
+    let spec = parse_and_validate(rule)
+    list.each(probes, fn(probe) {
+      let #(at, expected) = probe
+      assert matches_rrule(spec: spec, anchor: anchor, at: at) == Ok(expected)
+    })
+  })
+}
+
+pub fn count_is_consumed_by_an_exclusive_anchor_boundary_test() {
+  // COUNT=3 yields the anchor and two more days; starting just after the
+  // anchor leaves exactly the remaining two.
+  let anchor = vdt(2026, 1, 1, 9, 0, 0)
+  let assert Ok(iterator) =
+    iterate_rrule(
+      spec: parse_and_validate("FREQ=DAILY;COUNT=3"),
+      anchor: anchor,
+      boundary: a.Exclusive(anchor),
+    )
+  assert take_occurrences(iterator, 5, [])
+    == ["2026-01-02T09:00:00", "2026-01-03T09:00:00"]
+}
+
+pub fn intervals_longer_than_a_gregorian_cycle_match_dateutil_test() {
+  // python-dateutil 2.9.0 references; 4800 months and 20871 weeks are one
+  // 400-year cycle, so these intervals carry whole cycles.
+  let cases = [
+    #(
+      "FREQ=MONTHLY;INTERVAL=7;BYMONTHDAY=10,31",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2399, 9, 1, 0, 0, 0),
+      [
+        "2400-03-10T08:00:00", "2400-03-31T08:00:00", "2400-10-10T08:00:00",
+        "2400-10-31T08:00:00",
+      ],
+    ),
+    #(
+      "FREQ=MONTHLY;INTERVAL=4801",
+      vdt(2001, 3, 10, 8, 0, 0),
+      vdt(2001, 3, 10, 8, 0, 0),
+      ["2001-03-10T08:00:00", "2401-04-10T08:00:00", "2801-05-10T08:00:00"],
+    ),
+    #(
+      "FREQ=WEEKLY;INTERVAL=20872",
+      vdt(2001, 3, 7, 8, 0, 0),
+      vdt(2001, 3, 7, 8, 0, 0),
+      ["2001-03-07T08:00:00", "2401-03-14T08:00:00", "2801-03-21T08:00:00"],
+    ),
+  ]
+  list.each(cases, fn(c) {
+    let #(rule, anchor, boundary, expected) = c
+    let assert Ok(iterator) =
+      iterate_rrule(
+        spec: parse_and_validate(rule),
+        anchor: anchor,
+        boundary: a.Inclusive(boundary),
+      )
+    assert take_occurrences(iterator, list.length(expected), []) == expected
+  })
+}
+
+pub fn sub_daily_phase_follows_the_anchor_time_test() {
+  // With an even interval only every other hour, minute or second is in the
+  // rule's phase, which is fixed by the anchor's clock time. References from
+  // python-dateutil 2.9.0.
+  let cases = [
+    #("FREQ=HOURLY;INTERVAL=2;BYHOUR=9", vdt(2026, 1, 1, 1, 0, 0), [
+      "2026-01-01T09:00:00", "2026-01-02T09:00:00", "2026-01-03T09:00:00",
+    ]),
+    #("FREQ=HOURLY;INTERVAL=2;BYHOUR=9", vdt(2026, 1, 1, 1, 30, 0), [
+      "2026-01-01T09:30:00", "2026-01-02T09:30:00", "2026-01-03T09:30:00",
+    ]),
+    #(
+      "FREQ=MINUTELY;INTERVAL=2;BYHOUR=9;BYMINUTE=31",
+      vdt(2026, 1, 1, 0, 1, 0),
+      ["2026-01-01T09:31:00", "2026-01-02T09:31:00", "2026-01-03T09:31:00"],
+    ),
+    #(
+      "FREQ=SECONDLY;INTERVAL=120;BYHOUR=9;BYMINUTE=0",
+      vdt(2026, 1, 1, 0, 0, 1),
+      ["2026-01-01T09:00:01", "2026-01-02T09:00:01", "2026-01-03T09:00:01"],
+    ),
+    #("FREQ=MINUTELY;INTERVAL=120;BYHOUR=10,22", vdt(2026, 1, 1, 0, 0, 0), [
+      "2026-01-01T10:00:00", "2026-01-01T22:00:00", "2026-01-02T10:00:00",
+    ]),
+  ]
+  list.each(cases, fn(c) {
+    let #(rule, anchor, expected) = c
+    assert first_occurrences(rule, anchor, list.length(expected)) == expected
+  })
+}
+
+pub fn rule_without_any_occurrence_finishes_test() {
+  // Every fourth year from 2001 is never a leap year, so February 29 never
+  // occurs (python-dateutil also yields nothing). The search must report a
+  // finished sequence rather than run out of search budget.
+  let spec =
+    parse_and_validate("FREQ=YEARLY;INTERVAL=4;BYMONTH=2;BYMONTHDAY=29")
+  let anchor = vdt(2001, 2, 1, 0, 0, 0)
+  assert first_occurrences(
+      "FREQ=YEARLY;INTERVAL=4;BYMONTH=2;BYMONTHDAY=29",
+      anchor,
+      3,
+    )
+    == []
+  assert next_rrule(spec: spec, anchor: anchor, after: anchor) == Ok(None)
+}

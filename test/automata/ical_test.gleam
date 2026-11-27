@@ -1238,3 +1238,191 @@ fn old_ical_emitter_escape_text(value: String) -> String {
     |> list.find(fn(line) { string.starts_with(line, "SUMMARY:") })
   string.drop_start(line, 8)
 }
+
+fn parse_dtstart(
+  raw: String,
+) -> Result(List(option.Option(a.DateTime)), a.IcalError) {
+  let ics =
+    string.concat([
+      "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//x//EN\r\nBEGIN:VEVENT\r\n",
+      "UID:u\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:",
+      raw,
+      "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    ])
+  use cal <- result.map(a.ical_parse(ics))
+  list.map(a.ical_events(cal), a.ical_event_dtstart)
+}
+
+pub fn ical_dtstart_accepts_last_valid_component_values_test() {
+  // RFC 5545 DATE-TIME: month 01-12, day up to the month length, hour 00-23,
+  // minute 00-59; the largest legal values must parse.
+  assert parse_dtstart("20261231T235959")
+    == Ok([
+      Some(a.DateTime(
+        calendar.Date(2026, calendar.December, 31),
+        calendar.TimeOfDay(23, 59, 59, 0),
+      )),
+    ])
+  assert parse_dtstart("20240229T000000")
+    == Ok([
+      Some(a.DateTime(
+        calendar.Date(2024, calendar.February, 29),
+        calendar.TimeOfDay(0, 0, 0, 0),
+      )),
+    ])
+}
+
+pub fn ical_dtstart_rejects_out_of_range_components_test() {
+  list.each(
+    [
+      "20260001T000000", "20261301T000000", "20260100T000000", "20260132T000000",
+      "20250229T000000", "20260101T240000", "20260101T126000", "20260101T120061",
+      "20260101T12000", "2026011T120000",
+    ],
+    fn(raw) {
+      assert parse_dtstart(raw)
+        == Error(a.IcalInvalidDateTime(name: "DTSTART", raw: raw))
+    },
+  )
+}
+
+fn encoded_prodid_lines(prod_id: String) -> List(String) {
+  encode_calendar(a.ical_new_calendar(version: "2.0", prod_id: prod_id))
+  |> string.split("\r\n")
+  |> list.drop_while(fn(line) { !string.starts_with(line, "PRODID:") })
+  |> list.take_while(fn(line) { line != "END:VCALENDAR" && line != "" })
+}
+
+pub fn emit_folds_at_exactly_seventy_five_octets_test() {
+  // RFC 5545 3.1: a content line holds at most 75 octets; a continuation
+  // line starts with one space, which counts toward its 75 octets.
+  let a68 = string.repeat("a", 68)
+  assert encoded_prodid_lines(a68) == ["PRODID:" <> a68]
+  assert encoded_prodid_lines(string.repeat("a", 100))
+    == ["PRODID:" <> a68, " " <> string.repeat("a", 32)]
+  assert encoded_prodid_lines(string.repeat("a", 150))
+    == [
+      "PRODID:" <> a68,
+      " " <> string.repeat("a", 74),
+      " " <> string.repeat("a", 8),
+    ]
+}
+
+pub fn emit_fold_counts_utf8_octets_at_encoding_boundaries_test() {
+  // U+0080, U+0800 and U+10000 are the first code points needing 2, 3 and 4
+  // UTF-8 octets. Each case puts the character one octet past the limit, so
+  // the line must fold just before it.
+  list.each([#("\u{0080}", 2), #("\u{0800}", 3), #("\u{10000}", 4)], fn(c) {
+    let #(char, octets) = c
+    let filler = string.repeat("a", 69 - octets)
+    assert encoded_prodid_lines(filler <> char)
+      == ["PRODID:" <> filler, " " <> char]
+  })
+}
+
+pub fn lexer_line_numbers_count_physical_lines_test() {
+  // A folded line still occupies two physical lines, so the malformed line
+  // after it is physical line 5.
+  let folded =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-A:abc\r\n def\r\nNOCOLONHERE\r\nEND:VCALENDAR\r\n"
+  assert a.ical_parse_raw(folded)
+    == Error(a.IcalMalformedProperty(line: 5, raw: "NOCOLONHERE"))
+  // A stray continuation line at the very start is kept as its own line 1.
+  let leading =
+    " X-A:abc\r\nBEGIN:VCALENDAR\r\nNOCOLONHERE\r\nEND:VCALENDAR\r\n"
+  assert a.ical_parse_raw(leading)
+    == Error(a.IcalMalformedProperty(line: 3, raw: "NOCOLONHERE"))
+}
+
+pub fn parse_requires_begin_vcalendar_as_first_property_test() {
+  let ics = "X-FOO:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nEND:VCALENDAR\r\n"
+  assert a.ical_parse_raw(ics) == Error(a.IcalUnexpectedEnd(line: 1))
+}
+
+fn dtstart_lines_after_dtend_update(dtstart_line: String) -> List(String) {
+  // RFC 5545 3.6.1: DTSTART and DTEND must share a value type, so replacing
+  // DTEND with a DATE-TIME also resets a DATE-typed DTSTART to the default
+  // UTC DATE-TIME form, while a DATE-TIME DTSTART keeps its parsed form.
+  let assert Ok(cal) =
+    a.ical_parse(wrap_event([dtstart_line, "DTEND:20260102T000000"]))
+  let assert [event] = a.ical_events(cal)
+  let assert Ok(end) =
+    make_checked_datetime(
+      year: 2026,
+      month: 1,
+      day: 3,
+      hour: 0,
+      minute: 0,
+      second: 0,
+    )
+  let updated = a.ical_with_dtend(event, end)
+  let encoded =
+    encode_calendar(a.ical_add_event(
+      a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN"),
+      updated,
+    ))
+  string.split(encoded, "\r\n") |> starting_with("DTSTART")
+}
+
+pub fn dtend_update_resets_only_date_typed_dtstart_form_test() {
+  assert dtstart_lines_after_dtend_update("DTSTART:20260101")
+    == ["DTSTART:20260101T000000Z"]
+  assert dtstart_lines_after_dtend_update("DTSTART;VALUE=DATE:20260101")
+    == ["DTSTART:20260101T000000Z"]
+  // The VALUE parameter, not the shape of the text, names the value type.
+  assert dtstart_lines_after_dtend_update("DTSTART;VALUE=DATE:20260101T090000")
+    == ["DTSTART:20260101T090000Z"]
+  assert dtstart_lines_after_dtend_update(
+      "DTSTART;VALUE=DATE-TIME:20260101T090000",
+    )
+    == ["DTSTART;VALUE=DATE-TIME:20260101T090000"]
+}
+
+pub fn encode_keeps_explicit_date_time_value_parameter_test() {
+  let lines =
+    encoded_lines(wrap_event(["DTSTART;VALUE=DATE-TIME:20260101T090000"]))
+  assert starting_with(lines, "DTSTART")
+    == ["DTSTART;VALUE=DATE-TIME:20260101T090000"]
+}
+
+pub fn built_timezone_rule_dtstart_is_local_time_test() {
+  // RFC 5545 3.6.5: DTSTART in STANDARD/DAYLIGHT is a local DATE-TIME.
+  let assert Ok(start) =
+    make_checked_datetime(
+      year: 1970,
+      month: 1,
+      day: 1,
+      hour: 0,
+      minute: 0,
+      second: 0,
+    )
+  let tz =
+    a.ical_new_timezone(tzid: "Asia/Tokyo")
+    |> a.ical_add_timezone_standard(a.IcalTimezoneRule(
+      start,
+      "+0900",
+      "+0900",
+      None,
+      None,
+    ))
+  let lines =
+    a.ical_new_calendar(version: "2.0", prod_id: "-//x//EN")
+    |> a.ical_add_timezone(tz)
+    |> encode_calendar
+    |> string.split("\r\n")
+  assert starting_with(lines, "DTSTART") == ["DTSTART:19700101T000000"]
+}
+
+pub fn raw_text_prodid_round_trips_escapes_test() {
+  // PRODID is kept as raw text when it contains a backslash, comma or
+  // semicolon, so re-encoding must not escape it a second time.
+  list.each(["-//A\\,B//EN", "-//A,B//EN", "-//A\\;B//EN"], fn(prod_id) {
+    let ics =
+      string.concat([
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:",
+        prod_id,
+        "\r\nEND:VCALENDAR\r\n",
+      ])
+    assert starting_with(encoded_lines(ics), "PRODID") == ["PRODID:" <> prod_id]
+  })
+}
